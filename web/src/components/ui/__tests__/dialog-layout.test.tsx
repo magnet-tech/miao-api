@@ -24,7 +24,13 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogTitle,
+} from '../alert-dialog'
 import { Dialog as DialogRoot, DialogContent, DialogTitle } from '../dialog'
+import { Sheet, SheetContent, SheetTitle } from '../sheet'
 
 describe('dialog viewport layout', () => {
   test('long content shrinks independently of a stacked action footer', async () => {
@@ -103,5 +109,59 @@ describe('dialog viewport layout', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(onConfirm).toHaveBeenCalledOnce()
+  })
+})
+
+describe('nested popup backdrops', () => {
+  test('a dialog and a confirmation opened from a drawer each render their own backdrop', () => {
+    render(
+      <Sheet open>
+        <SheetContent>
+          <SheetTitle>Edit user</SheetTitle>
+          <DialogRoot open>
+            <DialogContent>
+              <DialogTitle>Verify identity</DialogTitle>
+              <AlertDialog open>
+                <AlertDialogContent>
+                  <AlertDialogTitle>Confirm change</AlertDialogTitle>
+                </AlertDialogContent>
+              </AlertDialog>
+            </DialogContent>
+          </DialogRoot>
+        </SheetContent>
+      </Sheet>
+    )
+    expect(document.querySelectorAll('[data-slot=sheet-overlay]')).toHaveLength(
+      1
+    )
+    expect(
+      document.querySelectorAll('[data-slot=dialog-overlay]')
+    ).toHaveLength(1)
+    expect(
+      document.querySelectorAll('[data-slot=alert-dialog-overlay]')
+    ).toHaveLength(1)
+  })
+
+  test('clicking a nested dialog backdrop does not close the drawer underneath', async () => {
+    const onSheetOpenChange = vi.fn()
+    render(
+      <Sheet open onOpenChange={onSheetOpenChange}>
+        <SheetContent>
+          <SheetTitle>Edit user</SheetTitle>
+          <DialogRoot open>
+            <DialogContent>
+              <DialogTitle>Verify identity</DialogTitle>
+            </DialogContent>
+          </DialogRoot>
+        </SheetContent>
+      </Sheet>
+    )
+    const backdrop = document.querySelector('[data-slot=dialog-overlay]')
+    expect(backdrop).not.toBeNull()
+    await userEvent.click(backdrop as Element)
+    expect(onSheetOpenChange).not.toHaveBeenCalled()
+    expect(
+      document.querySelector('[data-slot=sheet-content]')
+    ).toHaveTextContent('Edit user')
   })
 })

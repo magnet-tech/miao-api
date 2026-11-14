@@ -158,6 +158,23 @@ func TestSetUserPermissionsStoresOnlyOverrides(t *testing.T) {
 			ActionBind: false,
 		},
 		ResourceAudit: {ActionRead: false},
+		ResourceUserLimit: {
+			ActionRead:  true,
+			ActionWrite: true,
+			ActionReset: true,
+		},
+		ResourceUserToken: {
+			ActionRead:       true,
+			ActionManage:     true,
+			ActionSecretView: false,
+		},
+		ResourceUserEmail:             {ActionSend: true},
+		ResourceUserEmailVerification: {ActionWrite: true},
+		ResourceModelReplacement: {
+			ActionRead:      false,
+			ActionOperate:   false,
+			ActionConfigure: false,
+		},
 	}, ExplicitUserPermissions(42))
 	assert.Equal(t, PermissionsMap{
 		ResourceChannel: {
@@ -190,6 +207,23 @@ func TestSetUserPermissionsStoresOnlyOverrides(t *testing.T) {
 			ActionBind: false,
 		},
 		ResourceAudit: {ActionRead: false},
+		ResourceUserLimit: {
+			ActionRead:  true,
+			ActionWrite: true,
+			ActionReset: true,
+		},
+		ResourceUserToken: {
+			ActionRead:       true,
+			ActionManage:     true,
+			ActionSecretView: false,
+		},
+		ResourceUserEmail:             {ActionSend: true},
+		ResourceUserEmailVerification: {ActionWrite: true},
+		ResourceModelReplacement: {
+			ActionRead:      false,
+			ActionOperate:   false,
+			ActionConfigure: false,
+		},
 	}, ExplicitUserPermissions(42))
 	assert.Empty(t, ExplicitUserOverrides(42))
 }
@@ -319,4 +353,56 @@ func TestTaskPluginBindIsRootOnlyUntilGranted(t *testing.T) {
 	_, err = enforcer.RemovePolicy(RoleSubject(BuiltInRoleAdmin), ResourceTaskPlugin, ActionBind, EffectAllow)
 	require.NoError(t, err)
 	assert.False(t, Can(2, common.RoleAdminUser, TaskPluginBind))
+}
+
+func TestInitMigratesLegacyModelReplacementGrants(t *testing.T) {
+	db := newAuthzTestDB(t)
+	common.IsMasterNode = true
+	legacy := []model.CasbinRule{
+		{Ptype: "p", V0: UserSubject(61), V1: ResourceChannel, V2: legacyModelReplacementAction, V3: EffectAllow},
+		{Ptype: "p", V0: UserSubject(62), V1: ResourceChannel, V2: legacyModelReplacementAction, V3: EffectDeny},
+		{Ptype: "p", V0: UserSubject(63), V1: ResourceChannel, V2: ActionRead, V3: EffectDeny},
+	}
+	require.NoError(t, db.Create(&legacy).Error)
+
+	for range 2 {
+		require.NoError(t, Init(db))
+		require.NoError(t, ReloadPolicy())
+
+		var leftover int64
+		require.NoError(t, db.Model(&model.CasbinRule{}).
+			Where("v1 = ? AND v2 = ?", ResourceChannel, legacyModelReplacementAction).
+			Count(&leftover).Error)
+		assert.Zero(t, leftover)
+		var migrated int64
+		require.NoError(t, db.Model(&model.CasbinRule{}).
+			Where("v0 IN ? AND v1 = ?", []string{UserSubject(61), UserSubject(62)}, ResourceModelReplacement).
+			Count(&migrated).Error)
+		assert.Equal(t, int64(6), migrated)
+
+		for _, permission := range []Permission{ModelReplacementRead, ModelReplacementOperate, ModelReplacementConfigure} {
+			assert.True(t, Can(61, common.RoleAdminUser, permission), permission.Action)
+			assert.False(t, Can(62, common.RoleAdminUser, permission), permission.Action)
+			assert.False(t, Can(64, common.RoleAdminUser, permission), "model replacement is off for admins by default")
+			assert.True(t, Can(1, common.RoleRootUser, permission))
+		}
+		assert.False(t, Can(63, common.RoleAdminUser, ChannelRead), "unrelated channel overrides stay as they were")
+	}
+}
+
+func TestForkUserAdminPermissionDefaults(t *testing.T) {
+	db := newAuthzTestDB(t)
+	common.IsMasterNode = true
+	require.NoError(t, Init(db))
+
+	for _, permission := range []Permission{
+		UserLimitRead, UserLimitWrite, UserLimitReset,
+		UserTokenRead, UserTokenManage,
+		UserEmailSend, UserEmailVerificationWrite,
+	} {
+		assert.True(t, Can(2, common.RoleAdminUser, permission), permission.Resource+":"+permission.Action)
+		assert.False(t, Can(3, common.RoleCommonUser, permission), permission.Resource+":"+permission.Action)
+	}
+	assert.False(t, Can(2, common.RoleAdminUser, UserTokenSecretView))
+	assert.True(t, Can(1, common.RoleRootUser, UserTokenSecretView))
 }

@@ -70,6 +70,31 @@ func TestResendDeliversThroughSelectedProvider(t *testing.T) {
 	assert.Equal(t, 1, calls, "no SMTP configuration is needed and no duplicate request is made")
 }
 
+func TestResendSendsInlineImagesAsContentIDAttachments(t *testing.T) {
+	configureEmailDelivery(t, map[string]string{"EmailProvider": "resend", "ResendApiKey": "test-key", "ResendFrom": "sender@example.com"})
+	http.DefaultTransport = emailHTTPTransport(func(request *http.Request) (*http.Response, error) {
+		var body struct {
+			HTML        string `json:"html"`
+			Attachments []struct {
+				Filename    string `json:"filename"`
+				Content     string `json:"content"`
+				ContentType string `json:"content_type"`
+				ContentID   string `json:"content_id"`
+			} `json:"attachments"`
+		}
+		require.NoError(t, common.DecodeJson(request.Body, &body))
+		assert.Equal(t, `<p><img src="cid:logo"></p>`, body.HTML)
+		require.Len(t, body.Attachments, 1)
+		assert.Equal(t, "logo", body.Attachments[0].ContentID)
+		assert.Equal(t, "logo.png", body.Attachments[0].Filename)
+		assert.Equal(t, "image/png", body.Attachments[0].ContentType)
+		assert.Equal(t, "iVBORw0K", body.Attachments[0].Content)
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"id":"email-test-id"}`)), Header: make(http.Header)}, nil
+	})
+	require.NoError(t, common.SendEmailWithImages("Notice", "one@example.com", `<p><img src="cid:logo"></p>`,
+		[]common.InlineEmailImage{{CID: "logo", ContentType: "image/png", Content: "iVBORw0K"}}))
+}
+
 func TestResendFailuresDoNotRetryFallbackOrExposeSensitiveContent(t *testing.T) {
 	for _, status := range []int{302, 400, 401, 403, 429, 500} {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {

@@ -55,6 +55,8 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/user/self/email/verify/start":  accessTokenScopeRule("account_security:write"),
 	"POST /api/user/self/email/verify/resend": accessTokenScopeRule("account_security:write"),
 	"POST /api/user/self/email/verify":        accessTokenScopeRule("account_security:write"),
+	"GET /api/email_templates":                accessTokenScopeRule(service.AccessTokenScopeOf(authz.UserEmailSend)),
+	"PUT /api/email_templates":                accessTokenScopeRule("option:write"),
 	"POST /api/oauth/wechat/bind":             accessTokenScopeRule("account_security:write"),
 	"POST /api/oauth/telegram/bind/start":     accessTokenSessionRule,
 	"GET /api/oauth/:provider":                accessTokenSessionRule,
@@ -70,6 +72,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/user/models":                         accessTokenScopeRule("profile:read"),
 	"PUT /api/user/self":                           accessTokenScopeRule("profile:write"),
 	"DELETE /api/user/self":                        accessTokenScopeRule("account_security:write"),
+	"POST /api/user/self/email/test":               accessTokenScopeRule(service.AccessTokenScopeOf(authz.UserEmailSend)),
 	"GET /api/user/access_tokens":                  accessTokenSessionRule,
 	"GET /api/user/access_tokens/catalog":          accessTokenSessionRule,
 	"GET /api/user/access_tokens/scopes":           accessTokenSessionRule,
@@ -124,6 +127,9 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"DELETE /api/user/:id/reset_passkey":               accessTokenScopeRule("user:write"),
 	"GET /api/user/2fa/stats":                          accessTokenScopeRule("user:read"),
 	"DELETE /api/user/:id/2fa":                         accessTokenScopeRule("user:write"),
+	"POST /api/user/:id/email":                         accessTokenScopeRule(service.AccessTokenScopeOf(authz.UserEmailSend)),
+	"POST /api/user/:id/notice":                        accessTokenScopeRule(service.AccessTokenScopeOf(authz.UserEmailSend)),
+	"GET /api/user/:id/email/history":                  accessTokenScopeRule(service.AccessTokenScopeOf(authz.UserEmailSend)),
 
 	// router/api-router.go: /api/subscription
 	"GET /api/subscription/plans":                                    accessTokenScopeRule("wallet:read"),

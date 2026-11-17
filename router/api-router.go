@@ -106,6 +106,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/models", controller.GetUserModels)
 				selfRoute.PUT("/self", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.UpdateSelf)
 				selfRoute.DELETE("/self", middleware.DisableCache(), controller.DeleteSelf)
+				selfRoute.POST("/self/email/test", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("admin-email"), controller.SendSelfTestEmail)
 				accessTokenRoute := selfRoute.Group("/access_tokens")
 				accessTokenRoute.Use(middleware.DisableCache())
 				{
@@ -175,6 +176,11 @@ func SetApiRouter(router *gin.Engine) {
 				// Admin 2FA routes
 				adminRoute.GET("/2fa/stats", controller.Admin2FAStats)
 				adminRoute.DELETE("/:id/2fa", controller.AdminDisable2FA)
+
+				// Emails to users and account notices.
+				adminRoute.POST("/:id/email", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("admin-email"), middleware.DisableCache(), controller.SendUserEmail)
+				adminRoute.POST("/:id/notice", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("admin-email"), middleware.DisableCache(), controller.SendAccountNotice)
+				adminRoute.GET("/:id/email/history", middleware.DisableCache(), controller.GetUserEmailHistory)
 			}
 		}
 
@@ -214,6 +220,9 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/subscription/epay/notify", controller.SubscriptionEpayNotify)
 		apiRouter.GET("/subscription/epay/return", controller.SubscriptionEpayReturn)
 		apiRouter.POST("/subscription/epay/return", anonymousRequestBodyLimit, controller.SubscriptionEpayReturn)
+		apiRouter.GET("/email_templates", middleware.AdminAuth(), middleware.DisableCache(), controller.GetEmailTemplates)
+		apiRouter.PUT("/email_templates", middleware.RootAuth(), middleware.DisableCache(), controller.UpdateEmailTemplates)
+
 		optionRoute := apiRouter.Group("/option")
 		optionRoute.Use(middleware.RootAuth())
 		{

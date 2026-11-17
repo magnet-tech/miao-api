@@ -1267,16 +1267,36 @@ func ManageUser(c *gin.Context) {
 		"id":                  user.Id,
 		"verification_method": authorization.Method,
 	})
-	clearUser := model.User{
-		Role:   user.Role,
-		Status: user.Status,
+	data := gin.H{"role": user.Role, "status": user.Status}
+	// A verified disable or enable may be followed by the matching notice email
+	// without a second verification: the grant names this user, this kind of
+	// notice and this operator session, and works once.
+	if kind := accountNoticeKind(req.Action); kind != "" && user.Email != "" &&
+		authz.Can(c.GetInt("id"), myRole, authz.UserEmailSend) {
+		token, expiresAt, err := model.CreateAccountNoticeGrant(c.GetInt("id"), c.GetString("session_id"), user.Id, kind)
+		if err != nil {
+			common.SysError(common.LogText("failed to issue account notice grant for user %d: %s", user.Id, err.Error()))
+		} else {
+			data["notice_token"] = token
+			data["notice_expires_at"] = expiresAt.Unix()
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    clearUser,
+		"data":    data,
 	})
 	return
+}
+
+func accountNoticeKind(action string) string {
+	switch action {
+	case "disable":
+		return model.UserEmailKindSuspended
+	case "enable":
+		return model.UserEmailKindRestored
+	}
+	return ""
 }
 
 type topUpRequest struct {

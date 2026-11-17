@@ -108,6 +108,12 @@ func SendEmail(subject string, receiver string, content string) error {
 		"Message-ID: %s\r\n"+ // 添加 Message-ID 头
 		"Content-Type: text/html; charset=UTF-8\r\n\r\n%s\r\n",
 		receiver, SystemName, SMTPFrom, encodedSubject, time.Now().Format(time.RFC1123Z), id, content))
+	return deliverSMTPMail(receiver, mail)
+}
+
+// deliverSMTPMail sends an already built message to every address in receiver
+// (separated by ";").
+func deliverSMTPMail(receiver string, mail []byte) error {
 	auth := getSMTPAuth()
 	addr := fmt.Sprintf("%s:%d", SMTPServer, SMTPPort)
 	to := strings.Split(receiver, ";")

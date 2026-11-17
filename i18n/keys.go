@@ -79,6 +79,12 @@ const (
 	MsgEmailSecurityNoticeChanged = "email.security_notice.changed"
 	MsgEmailSecurityNoticeAdvice  = "email.security_notice.advice"
 
+	// Default account notices; administrators can replace them in settings.
+	MsgEmailAccountSuspendedSubject = "email.account_suspended.subject"
+	MsgEmailAccountSuspendedBody    = "email.account_suspended.body"
+	MsgEmailAccountRestoredSubject  = "email.account_restored.subject"
+	MsgEmailAccountRestoredBody     = "email.account_restored.body"
+
 	MsgSecurityEventPasswordUpdated      = "email.security_event.password_updated"
 	MsgSecurityEventEmailChangeRequested = "email.security_event.email_change_requested"
 	MsgSecurityEventEmailChanged         = "email.security_event.email_changed"

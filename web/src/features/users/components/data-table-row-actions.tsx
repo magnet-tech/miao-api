@@ -28,6 +28,7 @@ import {
   ShieldAlert,
   Link2,
   CreditCard,
+  Mail,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -48,8 +49,13 @@ import {
 } from '@/components/ui/tooltip'
 import type { AdminUserManageAction } from '@/features/auth/secure-verification'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
+import type { NoticeKind } from '@/features/user-emails/api'
+import { AccountNoticeDialog } from '@/features/user-emails/components/account-notice-dialog'
+import { UserEmailDrawer } from '@/features/user-emails/components/user-email-drawer'
+import { hasPermission } from '@/lib/admin-permissions'
 import { handleServerError } from '@/lib/handle-server-error'
 import { AuthOperationError } from '@/lib/secure-verification'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
 import {
@@ -88,6 +94,18 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
+  const [emailOpen, setEmailOpen] = useState(false)
+  const [notice, setNotice] = useState<{
+    kind: NoticeKind
+    token: string
+  } | null>(null)
+  const currentUser = useAuthStore((state) => state.auth.user)
+  const operatorRole = currentUser?.role ?? 0
+  // The server's rule (canManageTargetRole): root, or a strictly higher role.
+  const canManageTarget =
+    operatorRole === USER_ROLE.ROOT || operatorRole > user.role
+  const canEmail =
+    canManageTarget && hasPermission(currentUser, 'user_email', 'send')
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -115,6 +133,17 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       if (result.success) {
         toast.success(t(getUserActionMessage(action)))
         triggerRefresh()
+        // A verified disable/enable returns a one-time grant for the matching
+        // notice email, so sending it needs no second verification.
+        const noticeToken = (
+          result.data as { notice_token?: string } | undefined
+        )?.notice_token
+        if (user.email && noticeToken) {
+          setNotice({
+            kind: action === 'disable' ? 'suspended' : 'restored',
+            token: noticeToken,
+          })
+        }
       } else {
         handleServerError(result, t('Failed to {{action}} user', { action }))
       }
@@ -275,6 +304,18 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuShortcut>
         </DropdownMenuItem>
 
+        {canEmail && (
+          <DropdownMenuItem
+            disabled={!user.email}
+            onClick={() => setEmailOpen(true)}
+          >
+            {user.email ? t('Send email') : t('Send email (no address)')}
+            <DropdownMenuShortcut>
+              <Mail size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+        )}
+
         <DropdownMenuSeparator />
 
         <DropdownMenuItem
@@ -354,6 +395,25 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         user={{ id: user.id, username: user.username }}
         onSuccess={triggerRefresh}
       />
+
+      {emailOpen && (
+        <UserEmailDrawer
+          open={emailOpen}
+          onOpenChange={setEmailOpen}
+          user={user}
+          requestVerification={requestVerification}
+        />
+      )}
+
+      {notice && (
+        <AccountNoticeDialog
+          open={!verificationActive}
+          onOpenChange={(open) => !open && setNotice(null)}
+          kind={notice.kind}
+          noticeToken={notice.token}
+          user={user}
+        />
+      )}
     </div>
   )
 }

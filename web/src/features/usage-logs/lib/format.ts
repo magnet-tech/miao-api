@@ -457,6 +457,17 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'token.delete_batch': 'API token batch deletion',
   'token.key_view': 'API token key access',
   'token.key_view_batch': 'API token batch key access',
+  'user_token.create': 'API key created for user ID {{target_user_id}}',
+  'user_token.update': 'API key of user ID {{target_user_id}} updated',
+  'user_token.status_update':
+    'API key status of user ID {{target_user_id}} updated',
+  'user_token.delete': 'API key of user ID {{target_user_id}} deleted',
+  'user_token.delete_batch': 'API keys of user ID {{target_user_id}} deleted',
+  'user_token.key_view': 'Full API key of user ID {{target_user_id}} viewed',
+  'user_token.key_view_batch':
+    'Full API keys of user ID {{target_user_id}} viewed',
+  'user.token_session_start':
+    'Verified to manage the API keys of user ID {{target_user_id}}',
   'access_token.generate': 'Created an access token',
   'access_token.revoke': 'Revoked an access token',
   'access_token.rename': 'Renamed an access token',

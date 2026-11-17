@@ -32,18 +32,48 @@ import type {
 // API Key Management
 // ============================================================================
 
+/**
+ * Whose keys a request works on. An administrator managing another user's
+ * keys sends requests under /api/user/:id/tokens; changes there carry the
+ * management session, full keys a verification for exactly those keys.
+ */
+export type TokenScope = {
+  ownerId: number
+  /** The management session for changes; null while read-only. */
+  managementToken: string | null
+}
+
+function tokenBase(scope?: TokenScope | null): string {
+  return scope ? `/api/user/${scope.ownerId}/tokens` : '/api/token'
+}
+
+/** Request options for a scope; none for one's own keys. */
+function tokenConfig(
+  scope?: TokenScope | null,
+  proofToken?: string
+): [] | [{ headers: Record<string, string> }] {
+  const headers: Record<string, string> = {}
+  if (scope?.managementToken) {
+    headers['X-Key-Management-Session'] = scope.managementToken
+  }
+  if (proofToken) headers['X-Security-Proof'] = proofToken
+  return Object.keys(headers).length > 0 ? [{ headers }] : []
+}
+
 // Get paginated API keys list
 export async function getApiKeys(
-  params: GetApiKeysParams = {}
+  params: GetApiKeysParams = {},
+  scope?: TokenScope | null
 ): Promise<GetApiKeysResponse> {
   const { p = 1, size = 10 } = params
-  const res = await api.get(`/api/token/?p=${p}&size=${size}`)
+  const res = await api.get(`${tokenBase(scope)}/?p=${p}&size=${size}`)
   return res.data
 }
 
 // Search API keys by keyword or token (with pagination)
 export async function searchApiKeys(
-  params: SearchApiKeysParams
+  params: SearchApiKeysParams,
+  scope?: TokenScope | null
 ): Promise<GetApiKeysResponse> {
   const { keyword = '', token = '', p, size } = params
   const queryParams = new URLSearchParams()
@@ -51,77 +81,136 @@ export async function searchApiKeys(
   if (token) queryParams.set('token', token)
   if (p != null) queryParams.set('p', String(p))
   if (size != null) queryParams.set('size', String(size))
-  const res = await api.get(`/api/token/search?${queryParams.toString()}`)
+  const res = await api.get(
+    `${tokenBase(scope)}/search?${queryParams.toString()}`
+  )
   return res.data
 }
 
 // Get single API key by ID
-export async function getApiKey(id: number): Promise<ApiResponse<ApiKey>> {
-  const res = await api.get(`/api/token/${id}`)
+export async function getApiKey(
+  id: number,
+  scope?: TokenScope | null
+): Promise<ApiResponse<ApiKey>> {
+  const res = await api.get(`${tokenBase(scope)}/${id}`)
   return res.data
 }
 
-// Get the current user's global Auto order and the per-token selection limit.
-export async function getTokenAutoGroups(): Promise<
-  ApiResponse<TokenAutoGroupsConfig>
-> {
-  const res = await api.get('/api/token/auto-groups')
+// Get the user's global Auto order and the per-token selection limit.
+export async function getTokenAutoGroups(
+  scope?: TokenScope | null
+): Promise<ApiResponse<TokenAutoGroupsConfig>> {
+  const res = await api.get(`${tokenBase(scope)}/auto-groups`)
   return res.data
 }
 
 // Create a new API key
 export async function createApiKey(
-  data: ApiKeyFormData
+  data: ApiKeyFormData,
+  scope?: TokenScope | null
 ): Promise<ApiResponse<ApiKey>> {
-  const res = await api.post('/api/token/', data)
+  const res = await api.post(
+    `${tokenBase(scope)}/`,
+    data,
+    ...tokenConfig(scope)
+  )
   return res.data
 }
 
 // Update an existing API key
 export async function updateApiKey(
-  data: ApiKeyFormData & { id: number }
+  data: ApiKeyFormData & { id: number },
+  scope?: TokenScope | null
 ): Promise<ApiResponse<ApiKey>> {
-  const res = await api.put('/api/token/', data)
+  const res = await api.put(`${tokenBase(scope)}/`, data, ...tokenConfig(scope))
   return res.data
 }
 
 // Delete a single API key
-export async function deleteApiKey(id: number): Promise<ApiResponse> {
-  const res = await api.delete(`/api/token/${id}/`)
+export async function deleteApiKey(
+  id: number,
+  scope?: TokenScope | null
+): Promise<ApiResponse> {
+  const path = scope ? `${tokenBase(scope)}/${id}` : `/api/token/${id}/`
+  const res = await api.delete(path, ...tokenConfig(scope))
   return res.data
 }
 
 // Batch delete multiple API keys
 export async function batchDeleteApiKeys(
-  ids: number[]
+  ids: number[],
+  scope?: TokenScope | null
 ): Promise<ApiResponse<number>> {
-  const res = await api.post('/api/token/batch', { ids })
+  const res = await api.post(
+    `${tokenBase(scope)}/batch`,
+    { ids },
+    ...tokenConfig(scope)
+  )
   return res.data
 }
 
 // Update API key status (enable/disable)
 export async function updateApiKeyStatus(
   id: number,
-  status: number
+  status: number,
+  scope?: TokenScope | null
 ): Promise<ApiResponse<ApiKey>> {
-  const res = await api.put('/api/token/?status_only=true', { id, status })
+  const res = await api.put(
+    `${tokenBase(scope)}/?status_only=true`,
+    { id, status },
+    ...tokenConfig(scope)
+  )
   return res.data
 }
 
 // Fetch the real (unmasked) key for a token by ID
 export async function fetchTokenKey(
-  id: number
+  id: number,
+  scope?: TokenScope | null,
+  proofToken?: string
 ): Promise<{ success: boolean; message?: string; data?: { key: string } }> {
-  const res = await api.post(`/api/token/${id}/key`)
+  const config = tokenConfig(scope, proofToken)
+  const res = await (config.length > 0
+    ? api.post(`${tokenBase(scope)}/${id}/key`, undefined, ...config)
+    : api.post(`${tokenBase(scope)}/${id}/key`))
   return res.data
 }
 
 // Batch fetch real (unmasked) keys for multiple tokens
-export async function fetchTokenKeysBatch(ids: number[]): Promise<{
+export async function fetchTokenKeysBatch(
+  ids: number[],
+  scope?: TokenScope | null,
+  proofToken?: string
+): Promise<{
   success: boolean
   message?: string
   data?: { keys: Record<number, string> }
 }> {
-  const res = await api.post('/api/token/batch/keys', { ids })
+  const res = await api.post(
+    `${tokenBase(scope)}/batch/keys`,
+    { ids },
+    ...tokenConfig(scope, proofToken)
+  )
   return res.data
+}
+
+// Open a 30-minute management session for another user's keys.
+export async function startKeyManagement(
+  ownerId: number,
+  proofToken: string
+): Promise<ApiResponse<{ management_token: string; expires_at: number }>> {
+  const res = await api.post(
+    `/api/user/${ownerId}/tokens/management-session`,
+    undefined,
+    { headers: { 'X-Security-Proof': proofToken } }
+  )
+  return res.data
+}
+
+// End a management session early.
+export async function endKeyManagement(scope: TokenScope): Promise<void> {
+  await api.delete(
+    `${tokenBase(scope)}/management-session`,
+    ...tokenConfig(scope)
+  )
 }

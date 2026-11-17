@@ -43,7 +43,7 @@ import { useApiKeys } from './api-keys-provider'
 
 export function ApiKeysPrimaryButtons() {
   const { t } = useTranslation()
-  const { setOpen } = useApiKeys()
+  const { setOpen, canChange } = useApiKeys()
   const { status, loading } = useStatus()
   const { items } = useApiInfo()
   const serverAddress =
@@ -112,7 +112,7 @@ export function ApiKeysPrimaryButtons() {
           )}
         </PopoverContent>
       </Popover>
-      <Button size='sm' onClick={() => setOpen('create')}>
+      <Button size='sm' disabled={!canChange} onClick={() => setOpen('create')}>
         <Plus className='h-4 w-4' />
         {t('Create API Key')}
       </Button>

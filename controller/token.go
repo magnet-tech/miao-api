@@ -86,7 +86,7 @@ func getTokenRequestUserGroup(c *gin.Context) (string, error) {
 	if userGroup := c.GetString("group"); userGroup != "" {
 		return userGroup, nil
 	}
-	return model.GetUserGroup(c.GetInt("id"), false)
+	return model.GetUserGroup(tokenOwnerID(c), false)
 }
 
 func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) bool {
@@ -130,7 +130,7 @@ func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) boo
 }
 
 func GetAllTokens(c *gin.Context) {
-	userId := c.GetInt("id")
+	userId := tokenOwnerID(c)
 	pageInfo := common.GetPageQuery(c)
 	tokens, err := model.GetAllUserTokens(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
@@ -144,7 +144,7 @@ func GetAllTokens(c *gin.Context) {
 }
 
 func SearchTokens(c *gin.Context) {
-	userId := c.GetInt("id")
+	userId := tokenOwnerID(c)
 	keyword := c.Query("keyword")
 	token := c.Query("token")
 
@@ -161,8 +161,8 @@ func SearchTokens(c *gin.Context) {
 }
 
 func GetToken(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
-	userId := c.GetInt("id")
+	id, err := strconv.Atoi(tokenIDParam(c))
+	userId := tokenOwnerID(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -188,8 +188,8 @@ func GetTokenAutoGroups(c *gin.Context) {
 }
 
 func GetTokenKey(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
-	userId := c.GetInt("id")
+	id, err := strconv.Atoi(tokenIDParam(c))
+	userId := tokenOwnerID(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -324,7 +324,7 @@ func AddToken(c *gin.Context) {
 	}
 	// 检查用户令牌数量是否已达上限
 	maxTokens := operation_setting.GetMaxUserTokens()
-	count, err := model.CountUserTokens(c.GetInt("id"))
+	count, err := model.CountUserTokens(tokenOwnerID(c))
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -348,7 +348,7 @@ func AddToken(c *gin.Context) {
 		return
 	}
 	cleanToken := model.Token{
-		UserId:             c.GetInt("id"),
+		UserId:             tokenOwnerID(c),
 		Name:               token.Name,
 		Key:                key,
 		CreatedTime:        common.GetTimestamp(),
@@ -378,8 +378,8 @@ func AddToken(c *gin.Context) {
 }
 
 func DeleteToken(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-	userId := c.GetInt("id")
+	id, _ := strconv.Atoi(tokenIDParam(c))
+	userId := tokenOwnerID(c)
 	token, err := model.GetTokenByIds(id, userId)
 	if err != nil {
 		common.ApiError(c, err)
@@ -400,7 +400,7 @@ func DeleteToken(c *gin.Context) {
 }
 
 func UpdateToken(c *gin.Context) {
-	userId := c.GetInt("id")
+	userId := tokenOwnerID(c)
 	statusOnly := c.Query("status_only")
 	request := tokenRequest{}
 	err := c.ShouldBindJSON(&request)
@@ -526,7 +526,7 @@ func DeleteTokenBatch(c *gin.Context) {
 		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
-	userId := c.GetInt("id")
+	userId := tokenOwnerID(c)
 	count, err := model.BatchDeleteTokens(tokenBatch.Ids, userId)
 	if err != nil {
 		common.ApiError(c, err)
@@ -556,7 +556,7 @@ func GetTokenKeysBatch(c *gin.Context) {
 		common.ApiErrorT(c, "Too many items in batch request, maximum is {{max}}", map[string]any{"max": 100})
 		return
 	}
-	userId := c.GetInt("id")
+	userId := tokenOwnerID(c)
 	tokens, err := model.GetTokenKeysByIds(tokenBatch.Ids, userId)
 	if err != nil {
 		common.ApiError(c, err)

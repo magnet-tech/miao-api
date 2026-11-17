@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useNavigate } from '@tanstack/react-router'
 import type { Row } from '@tanstack/react-table'
 import {
   Pencil,
@@ -29,6 +30,7 @@ import {
   Link2,
   CreditCard,
   Gauge,
+  KeySquare,
   Mail,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -103,6 +105,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     token: string
   } | null>(null)
   const currentUser = useAuthStore((state) => state.auth.user)
+  const navigate = useNavigate()
   const operatorRole = currentUser?.role ?? 0
   // The server's rule (canManageTargetRole): root, or a strictly higher role.
   const canManageTarget =
@@ -313,6 +316,23 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
               {t('Usage Limits')}
               <DropdownMenuShortcut>
                 <Gauge size={16} />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+          )}
+
+        {canManageTarget &&
+          hasPermission(currentUser, 'user_token', 'read') && (
+            <DropdownMenuItem
+              disabled={isDisabled}
+              onClick={() =>
+                navigate({ to: '/keys', search: { owner: user.id } })
+              }
+            >
+              {isDisabled
+                ? t('Manage API Keys (user disabled)')
+                : t('Manage API Keys')}
+              <DropdownMenuShortcut>
+                <KeySquare size={16} />
               </DropdownMenuShortcut>
             </DropdownMenuItem>
           )}

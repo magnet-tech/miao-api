@@ -109,9 +109,9 @@ func loadUserLimitsView(userID int, enabledOnly bool) (userLimitsView, error) {
 	return buildUserLimitsView(userID, snapshot, windows, enabledOnly), nil
 }
 
-// limitTarget resolves the :id user for an operator that holds permission
+// managedUser resolves the :id user for an operator that holds permission
 // and may manage that user, answering the request itself otherwise.
-func limitTarget(c *gin.Context, permission authz.Permission) (*model.User, bool) {
+func managedUser(c *gin.Context, permission authz.Permission) (*model.User, bool) {
 	if !authz.Can(c.GetInt("id"), c.GetInt("role"), permission) {
 		common.ApiErrorStatus(c, http.StatusForbidden, common.NewMessage("Unauthorized, insufficient privileges"))
 		return nil, false
@@ -134,7 +134,7 @@ func limitTarget(c *gin.Context, permission authz.Permission) (*model.User, bool
 }
 
 func GetUserLimits(c *gin.Context) {
-	user, ok := limitTarget(c, authz.UserLimitRead)
+	user, ok := managedUser(c, authz.UserLimitRead)
 	if !ok {
 		return
 	}
@@ -218,7 +218,7 @@ func normalizeUsageRules(rules []model.UserUsageRule) (*common.Message, []model.
 // UpdateUserLimits replaces a user's rules and concurrency cap. A rule whose
 // window and models are unchanged keeps its current window.
 func UpdateUserLimits(c *gin.Context) {
-	user, ok := limitTarget(c, authz.UserLimitWrite)
+	user, ok := managedUser(c, authz.UserLimitWrite)
 	if !ok {
 		return
 	}
@@ -263,7 +263,7 @@ func UpdateUserLimits(c *gin.Context) {
 // ResetUserLimitWindows ends the current window of one rule, or of every rule
 // when window_seconds is 0.
 func ResetUserLimitWindows(c *gin.Context) {
-	user, ok := limitTarget(c, authz.UserLimitReset)
+	user, ok := managedUser(c, authz.UserLimitReset)
 	if !ok {
 		return
 	}
@@ -298,7 +298,7 @@ type limitModelGroup struct {
 // GetUserLimitModels lists the models a rule can name, grouped by vendor: the
 // enabled models of every channel and those the user's rules already name.
 func GetUserLimitModels(c *gin.Context) {
-	user, ok := limitTarget(c, authz.UserLimitRead)
+	user, ok := managedUser(c, authz.UserLimitRead)
 	if !ok {
 		return
 	}

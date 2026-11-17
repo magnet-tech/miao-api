@@ -47,10 +47,10 @@ import { DataTableRowActions } from './data-table-row-actions'
 
 const EMPTY_GROUP_RATIOS: Record<string, number | string> = {}
 
-function useGroupRatios(): Record<string, number | string> {
+function useGroupRatios(ownerId?: number): Record<string, number | string> {
   const { data } = useQuery({
-    queryKey: ['user-groups'],
-    queryFn: async () => requireServerSuccess(await getUserGroups()),
+    queryKey: ['user-groups', ownerId ?? 'self'],
+    queryFn: async () => requireServerSuccess(await getUserGroups(ownerId)),
     staleTime: 0,
     select: (res) => {
       if (!res.success || !res.data) return {}
@@ -67,12 +67,16 @@ function useGroupRatios(): Record<string, number | string> {
   return data ?? EMPTY_GROUP_RATIOS
 }
 
-export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
+/** ownerId names a user whose keys an administrator manages. */
+export function useApiKeysColumns(
+  now: number,
+  ownerId?: number
+): ColumnDef<ApiKey>[] {
   const { t, i18n } = useTranslation()
   useSystemConfigStore((state) => state.config.currency)
   const { meta: currency } = getCurrencyDisplay()
   const quotaUnit = currency.kind === 'tokens' ? t('Tokens') : currency.symbol
-  const groupRatios = useGroupRatios()
+  const groupRatios = useGroupRatios(ownerId)
   const shouldReduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const justNowLabel = t('Just now')

@@ -188,6 +188,28 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.PUT("/:id/limits", middleware.DisableCache(), controller.UpdateUserLimits)
 				adminRoute.POST("/:id/limits/reset", middleware.DisableCache(), controller.ResetUserLimitWindows)
 				adminRoute.GET("/:id/limits/models", middleware.DisableCache(), controller.GetUserLimitModels)
+
+				// API keys of a user the operator manages.
+				userTokens := adminRoute.Group("/:id/tokens", middleware.DisableCache(), middleware.TokenOperationAudit())
+				{
+					read := controller.ManagedTokenOwner(authz.UserTokenRead)
+					manage := controller.ManagedTokenOwner(authz.UserTokenManage)
+					reveal := controller.ManagedTokenOwner(authz.UserTokenSecretView)
+					userTokens.GET("/", read, controller.GetAllTokens)
+					userTokens.GET("/search", middleware.SearchRateLimit(), read, controller.SearchTokens)
+					userTokens.GET("/auto-groups", read, controller.GetTokenAutoGroups)
+					userTokens.GET("/models", read, controller.GetUserModels)
+					userTokens.GET("/groups", read, controller.GetUserGroups)
+					userTokens.GET("/:token_id", read, controller.GetToken)
+					userTokens.POST("/management-session", middleware.CriticalRateLimit(), manage, controller.StartManagedTokenSession)
+					userTokens.DELETE("/management-session", controller.EndManagedTokenSession)
+					userTokens.POST("/", manage, controller.RequireManagedTokenSession, controller.AddToken)
+					userTokens.PUT("/", manage, controller.RequireManagedTokenSession, controller.UpdateToken)
+					userTokens.DELETE("/:token_id", manage, controller.RequireManagedTokenSession, controller.DeleteToken)
+					userTokens.POST("/batch", manage, controller.RequireManagedTokenSession, controller.DeleteTokenBatch)
+					userTokens.POST("/:token_id/key", middleware.CriticalRateLimit(), reveal, controller.RevealManagedTokenKey)
+					userTokens.POST("/batch/keys", middleware.CriticalRateLimit(), reveal, controller.RevealManagedTokenKeys)
+				}
 			}
 		}
 

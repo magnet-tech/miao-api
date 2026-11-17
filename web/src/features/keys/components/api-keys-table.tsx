@@ -217,9 +217,9 @@ function ApiKeysMobileList({
 
 export function ApiKeysTable() {
   const { t } = useTranslation()
-  const { refreshTrigger } = useApiKeys()
+  const { refreshTrigger, tokenScope } = useApiKeys()
   const [now, setNow] = useState(() => Date.now())
-  const columns = useApiKeysColumns(now)
+  const columns = useApiKeysColumns(now, tokenScope?.ownerId)
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -264,6 +264,7 @@ export function ApiKeysTable() {
   const { data, isLoading, isFetching } = useQuery({
     queryKey: [
       'keys',
+      tokenScope?.ownerId ?? 'self',
       pagination.pageIndex + 1,
       pagination.pageSize,
       globalFilter,
@@ -272,16 +273,22 @@ export function ApiKeysTable() {
     ],
     queryFn: async () => {
       const result = shouldSearch
-        ? await searchApiKeys({
-            keyword: globalFilter,
-            token: tokenFilter,
-            p: pagination.pageIndex + 1,
-            size: pagination.pageSize,
-          })
-        : await getApiKeys({
-            p: pagination.pageIndex + 1,
-            size: pagination.pageSize,
-          })
+        ? await searchApiKeys(
+            {
+              keyword: globalFilter,
+              token: tokenFilter,
+              p: pagination.pageIndex + 1,
+              size: pagination.pageSize,
+            },
+            tokenScope
+          )
+        : await getApiKeys(
+            {
+              p: pagination.pageIndex + 1,
+              size: pagination.pageSize,
+            },
+            tokenScope
+          )
 
       if (!result.success) {
         throw createServerError(

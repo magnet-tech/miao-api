@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -210,7 +211,15 @@ const accessTokenAuditContextKey = "access_token_request_audit"
 func TokenOperationAudit() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var action, content string
-		switch c.Request.Method + " " + c.FullPath() {
+		// An administrator's changes to another user's keys run the same
+		// handlers under /api/user/:id/tokens and are recorded as
+		// user_token.* actions naming that user.
+		path, tokenParam := c.FullPath(), "id"
+		suffix, managed := strings.CutPrefix(path, "/api/user/:id/tokens")
+		if managed {
+			path, tokenParam = "/api/token"+strings.Replace(suffix, ":token_id", ":id", 1), "token_id"
+		}
+		switch c.Request.Method + " " + path {
 		case "POST /api/token/":
 			action, content = "token.create", "API token creation"
 		case "PUT /api/token/":
@@ -232,8 +241,14 @@ func TokenOperationAudit() gin.HandlerFunc {
 		}
 
 		params := model.AuditFields{}
-		if id, err := strconv.Atoi(c.Param("id")); err == nil && id > 0 {
+		if id, err := strconv.Atoi(c.Param(tokenParam)); err == nil && id > 0 {
 			params["id"] = id
+		}
+		if managed {
+			action = "user_" + action
+			if owner, err := strconv.Atoi(c.Param("id")); err == nil {
+				params["target_user_id"] = owner
+			}
 		}
 		common.SetContextKey(c, constant.ContextKeyTokenAuditParams, params)
 		entry := model.AuditLog{

@@ -109,7 +109,7 @@ export function ApiKeysMutateDrawer({
   const { t } = useTranslation()
   const isUpdate = !!currentRow
   const currentRowId = currentRow?.id
-  const { triggerRefresh } = useApiKeys()
+  const { triggerRefresh, owner, tokenScope } = useApiKeys()
   const { status, loading: statusLoading } = useStatus()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
@@ -120,8 +120,8 @@ export function ApiKeysMutateDrawer({
 
   // Fetch models
   const { data: modelsData } = useQuery({
-    queryKey: ['user-models'],
-    queryFn: async () => requireServerSuccess(await getUserModels()),
+    queryKey: ['user-models', owner?.id ?? 'self'],
+    queryFn: async () => requireServerSuccess(await getUserModels(owner?.id)),
     enabled: open,
     staleTime: 0,
   })
@@ -132,8 +132,8 @@ export function ApiKeysMutateDrawer({
     isFetched: groupsFetched,
     isFetching: groupsFetching,
   } = useQuery({
-    queryKey: ['user-groups'],
-    queryFn: async () => requireServerSuccess(await getUserGroups()),
+    queryKey: ['user-groups', owner?.id ?? 'self'],
+    queryFn: async () => requireServerSuccess(await getUserGroups(owner?.id)),
     enabled: open,
     staleTime: 0,
   })
@@ -143,9 +143,9 @@ export function ApiKeysMutateDrawer({
     isFetched: apiKeyFetched,
     isFetching: apiKeyFetching,
   } = useQuery({
-    queryKey: ['api-key', currentRowId],
+    queryKey: ['api-key', owner?.id ?? 'self', currentRowId],
     queryFn: async () =>
-      requireServerSuccess(await getApiKey(currentRowId ?? 0)),
+      requireServerSuccess(await getApiKey(currentRowId ?? 0, tokenScope)),
     enabled: open && isUpdate && currentRowId !== undefined,
     staleTime: 0,
   })
@@ -155,8 +155,9 @@ export function ApiKeysMutateDrawer({
     isFetched: autoGroupsFetched,
     isFetching: autoGroupsFetching,
   } = useQuery({
-    queryKey: ['token-auto-groups'],
-    queryFn: async () => requireServerSuccess(await getTokenAutoGroups()),
+    queryKey: ['token-auto-groups', owner?.id ?? 'self'],
+    queryFn: async () =>
+      requireServerSuccess(await getTokenAutoGroups(tokenScope)),
     enabled: open,
     staleTime: 0,
   })
@@ -293,10 +294,10 @@ export function ApiKeysMutateDrawer({
       const basePayload = transformFormDataToPayload(data)
 
       if (isUpdate && currentRow) {
-        const result = await updateApiKey({
-          ...basePayload,
-          id: currentRow.id,
-        })
+        const result = await updateApiKey(
+          { ...basePayload, id: currentRow.id },
+          tokenScope
+        )
         if (result.success) {
           toast.success(t(SUCCESS_MESSAGES.API_KEY_UPDATED))
           onOpenChange(false)
@@ -310,13 +311,16 @@ export function ApiKeysMutateDrawer({
         let successCount = 0
 
         for (let i = 0; i < count; i++) {
-          const result = await createApiKey({
-            ...basePayload,
-            name:
-              i === 0 && data.name
-                ? data.name
-                : `${data.name || 'default'}-${Math.random().toString(36).slice(2, 8)}`,
-          })
+          const result = await createApiKey(
+            {
+              ...basePayload,
+              name:
+                i === 0 && data.name
+                  ? data.name
+                  : `${data.name || 'default'}-${Math.random().toString(36).slice(2, 8)}`,
+            },
+            tokenScope
+          )
           if (result.success) {
             successCount++
           } else {

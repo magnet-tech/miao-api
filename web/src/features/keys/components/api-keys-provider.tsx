@@ -16,13 +16,24 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import React, { useState, useCallback, useRef, useEffect } from 'react'
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import {
+  SecureVerificationDialog,
+  useSecureVerification,
+} from '@/features/auth/secure-verification'
 import useDialogState from '@/hooks/use-dialog'
 import { handleServerError } from '@/lib/handle-server-error'
+import { AuthOperationError } from '@/lib/secure-verification'
 
-import { fetchTokenKey, fetchTokenKeysBatch } from '../api'
+import {
+  endKeyManagement,
+  fetchTokenKey,
+  fetchTokenKeysBatch,
+  startKeyManagement,
+  type TokenScope,
+} from '../api'
 import { ERROR_MESSAGES } from '../constants'
 import type { ApiKey, ApiKeysDialogType } from '../types'
 
@@ -41,12 +52,40 @@ type ApiKeysContextType = {
   loadingKeys: Record<number, boolean>
   copiedKeyId: number | null
   markKeyCopied: (id: number) => void
+  /** The user whose keys an administrator manages; null for one's own. */
+  owner: KeyOwner | null
+  /** Passed to every keys API call. */
+  tokenScope: TokenScope | null
+  /** False while managing another user's keys without a session. */
+  canChange: boolean
+  /** When the management session ends, in Unix seconds. */
+  managementExpiresAt: number | null
+  startManagement: () => Promise<void>
+  endManagement: () => void
 }
+
+export type KeyOwner = { id: number; username: string }
 
 const ApiKeysContext = React.createContext<ApiKeysContextType | null>(null)
 
-export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
+export function ApiKeysProvider(props: {
+  children: React.ReactNode
+  owner?: KeyOwner | null
+}) {
   const { t } = useTranslation()
+  const owner = props.owner ?? null
+  const verification = useSecureVerification()
+  const [management, setManagement] = useState<{
+    token: string
+    expiresAt: number
+  } | null>(null)
+  const tokenScope = useMemo<TokenScope | null>(
+    () =>
+      owner
+        ? { ownerId: owner.id, managementToken: management?.token ?? null }
+        : null,
+    [owner, management]
+  )
   const [open, setOpen] = useDialogState<ApiKeysDialogType>(null)
   const [currentRow, setCurrentRow] = useState<ApiKey | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
@@ -73,6 +112,88 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
     setRefreshTrigger((prev) => prev + 1)
   }, [])
 
+  const { requestVerification } = verification
+  /**
+   * Another user's full keys need a verification for exactly those keys each
+   * time: undefined for one's own keys, null when the operator cancels.
+   */
+  const revealProof = useCallback(
+    async (ids: number[]): Promise<string | undefined | null> => {
+      if (!owner) return undefined
+      try {
+        const proof = await requestVerification({
+          scope: 'admin.user.tokens',
+          context: { user_id: owner.id, action: 'reveal', token_ids: ids },
+          title: t('Verify to view full API keys'),
+          description: t(
+            'Confirm your identity to view the full API keys of {{username}}.',
+            { username: owner.username }
+          ),
+        })
+        return proof?.proof_token ?? null
+      } catch (error) {
+        handleServerError(
+          AuthOperationError.from(error),
+          t('Verification failed')
+        )
+        return null
+      }
+    },
+    [owner, requestVerification, t]
+  )
+
+  const startManagement = useCallback(async () => {
+    if (!owner) return
+    try {
+      const proof = await requestVerification({
+        scope: 'admin.user.tokens',
+        context: { user_id: owner.id, action: 'manage' },
+        title: t("Verify to manage this user's API keys"),
+        description: t(
+          'After verifying, you can change the API keys of {{username}} for 30 minutes without being asked again.',
+          { username: owner.username }
+        ),
+      })
+      if (!proof) return
+      const result = await startKeyManagement(owner.id, proof.proof_token)
+      if (!result.success || !result.data) {
+        handleServerError(result, t('Verification failed'))
+        return
+      }
+      setManagement({
+        token: result.data.management_token,
+        expiresAt: result.data.expires_at,
+      })
+    } catch (error) {
+      handleServerError(
+        AuthOperationError.from(error),
+        t('Verification failed')
+      )
+    }
+  }, [owner, requestVerification, t])
+
+  // The session ends when its time is up, when the operator ends it and when
+  // the page is left.
+  const endManagement = useCallback(() => {
+    setManagement(null)
+    if (tokenScope?.managementToken) {
+      void endKeyManagement(tokenScope).catch(() => undefined)
+    }
+  }, [tokenScope])
+
+  const endOnLeave = useRef(endManagement)
+  useEffect(() => {
+    endOnLeave.current = endManagement
+  }, [endManagement])
+  useEffect(() => () => endOnLeave.current(), [])
+
+  useEffect(() => {
+    if (!management) return
+    const remaining = management.expiresAt * 1000 - Date.now()
+    const timer = setTimeout(() => setManagement(null), Math.max(remaining, 0))
+    return () => clearTimeout(timer)
+  }, [management])
+
   const resolveRealKey = useCallback(
     async (id: number): Promise<string | null> => {
       if (resolvedKeys[id]) return resolvedKeys[id]
@@ -81,7 +202,9 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
       const request = (async () => {
         setLoadingKeys((prev) => ({ ...prev, [id]: true }))
         try {
-          const res = await fetchTokenKey(id)
+          const proof = await revealProof([id])
+          if (proof === null) return null
+          const res = await fetchTokenKey(id, tokenScope, proof)
           if (res.success && res.data?.key) {
             const fullKey = `sk-${res.data.key}`
             setResolvedKeys((prev) => ({ ...prev, [id]: fullKey }))
@@ -105,7 +228,7 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
       pendingRequests.current[id] = request
       return request
     },
-    [resolvedKeys, t]
+    [resolvedKeys, revealProof, t, tokenScope]
   )
 
   const resolveRealKeysBatch = useCallback(
@@ -122,7 +245,9 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        const res = await fetchTokenKeysBatch(uncachedIds)
+        const proof = await revealProof(uncachedIds)
+        if (proof === null) return {}
+        const res = await fetchTokenKeysBatch(uncachedIds, tokenScope, proof)
         if (res.success && res.data?.keys) {
           const newKeys: Record<number, string> = {}
           for (const [idStr, key] of Object.entries(res.data.keys)) {
@@ -151,7 +276,7 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
         }
       }
     },
-    [resolvedKeys, t]
+    [resolvedKeys, revealProof, t, tokenScope]
   )
 
   return (
@@ -171,9 +296,16 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
         loadingKeys,
         copiedKeyId,
         markKeyCopied,
+        owner,
+        tokenScope,
+        canChange: !owner || management !== null,
+        managementExpiresAt: management?.expiresAt ?? null,
+        startManagement,
+        endManagement,
       }}
     >
-      {children}
+      {props.children}
+      <SecureVerificationDialog {...verification.dialogProps} />
     </ApiKeysContext>
   )
 }

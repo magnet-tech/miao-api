@@ -187,7 +187,7 @@ func GetDetectionCandidates(c *gin.Context) {
 		served[item.Model] = []detectionChannel{}
 	}
 	for _, channel := range channels {
-		if channel.Status != common.ChannelStatusEnabled || slices.Contains(unsupportedTestChannelTypes, channel.Type) {
+		if channel.Status != common.ChannelStatusEnabled || !channelTestable(channel) {
 			continue
 		}
 		for _, name := range channel.GetModels() {
@@ -197,7 +197,7 @@ func GetDetectionCandidates(c *gin.Context) {
 		}
 	}
 	for _, channel := range channels {
-		if slices.Contains(unsupportedTestChannelTypes, channel.Type) {
+		if !channelTestable(channel) {
 			continue
 		}
 		view := newDetectionChannel(channel)
@@ -597,7 +597,7 @@ func TrialDetection(c *gin.Context) {
 	for i := range served {
 		served[i] = strings.TrimSpace(served[i])
 	}
-	if !slices.Contains(served, item.Model) || slices.Contains(unsupportedTestChannelTypes, channel.Type) {
+	if !slices.Contains(served, item.Model) || !channelTestable(channel) {
 		common.ApiErrorT(c, "This channel does not serve the model.")
 		return
 	}

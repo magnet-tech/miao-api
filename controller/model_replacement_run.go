@@ -140,7 +140,7 @@ type detectionTarget struct {
 // monitoredModelsOf returns the monitored models a channel serves and is not
 // excluded from.
 func monitoredModelsOf(setting operation_setting.ModelReplacementSetting, channel *model.Channel) []operation_setting.MonitoredModel {
-	if slices.Contains(unsupportedTestChannelTypes, channel.Type) {
+	if !channelTestable(channel) {
 		return nil
 	}
 	served := channel.GetModels()

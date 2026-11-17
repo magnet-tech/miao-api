@@ -379,6 +379,8 @@ func migrateDB() error {
 		&UserEmailLog{},
 		&UserLimitPolicy{},
 		&UserUsageWindow{},
+		&ModelReplacementRecord{},
+		&ModelReplacementAttempt{},
 	)
 	if err != nil {
 		return err

@@ -22,6 +22,7 @@ import {
   ClipboardList,
   CreditCard,
   FileText,
+  Fingerprint,
   FlaskConical,
   Gauge,
   Key,
@@ -164,6 +165,15 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             url: '/subscriptions',
             icon: CreditCard,
           },
+          ...(hasPermission(user, 'model_replacement', 'read')
+            ? [
+                {
+                  title: t('Model Replacement Detection'),
+                  url: '/model-replacement',
+                  icon: Fingerprint,
+                },
+              ]
+            : []),
           {
             title: t('System Info'),
             url: '/system-info',

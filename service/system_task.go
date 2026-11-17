@@ -46,6 +46,12 @@ type ScheduledSystemTaskHandler interface {
 	NewPayload() any
 }
 
+// RunTimedSystemTaskHandler is a scheduled handler whose wait before the next
+// run depends on the previous run and when it finished.
+type RunTimedSystemTaskHandler interface {
+	IntervalAfter(previous *model.SystemTask, finishedAt time.Time) time.Duration
+}
+
 var (
 	systemTaskHandlersMu sync.RWMutex
 	systemTaskHandlers   = map[string]SystemTaskHandler{}
@@ -284,7 +290,11 @@ func runSystemTaskScheduler() {
 			if latest.Status == model.SystemTaskStatusPending || latest.Status == model.SystemTaskStatusRunning {
 				continue // an active row already exists
 			}
-			if now-latest.UpdatedAt < int64(scheduled.Interval().Seconds()) {
+			interval := scheduled.Interval()
+			if timed, ok := scheduled.(RunTimedSystemTaskHandler); ok {
+				interval = timed.IntervalAfter(latest, time.Unix(latest.UpdatedAt, 0))
+			}
+			if now-latest.UpdatedAt < int64(interval.Seconds()) {
 				continue // not due yet
 			}
 		}

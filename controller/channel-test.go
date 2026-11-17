@@ -40,6 +40,24 @@ type testResult struct {
 	context     *gin.Context
 	localErr    error
 	newAPIError *types.NewAPIError
+	// For a probe: the complete client-format reply, the model the upstream
+	// declared in it and the upstream model name the request was mapped to.
+	responseBody  []byte
+	declaredModel string
+	mappedModel   string
+}
+
+// unsupportedTestChannelTypes are task channels that cannot answer a
+// synchronous test request.
+var unsupportedTestChannelTypes = []int{
+	constant.ChannelTypeMidjourney,
+	constant.ChannelTypeMidjourneyPlus,
+	constant.ChannelTypeSunoAPI,
+	constant.ChannelTypeKling,
+	constant.ChannelTypeJimeng,
+	constant.ChannelTypeDoubaoVideo,
+	constant.ChannelTypeVidu,
+	constant.ChannelTypeTaskPlugin,
 }
 
 func normalizeChannelTestEndpoint(channel *model.Channel, endpointType string) string {
@@ -71,20 +89,17 @@ func resolveChannelTestUserID(c *gin.Context) (int, error) {
 }
 
 func testChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool) testResult {
+	return probeChannel(ctx, channel, testUserID, testModel, endpointType, isStream, nil)
+}
+
+// probeChannel sends one test request through the channel's adaptor: the
+// default connectivity request when probe is nil, otherwise probe as given,
+// whose complete reply is returned for inspection.
+func probeChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool, probe dto.Request) testResult {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	tik := time.Now()
-	var unsupportedTestChannelTypes = []int{
-		constant.ChannelTypeMidjourney,
-		constant.ChannelTypeMidjourneyPlus,
-		constant.ChannelTypeSunoAPI,
-		constant.ChannelTypeKling,
-		constant.ChannelTypeJimeng,
-		constant.ChannelTypeDoubaoVideo,
-		constant.ChannelTypeVidu,
-		constant.ChannelTypeTaskPlugin,
-	}
 	if lo.Contains(unsupportedTestChannelTypes, channel.Type) {
 		channelTypeName := constant.GetChannelTypeName(channel.Type)
 		return testResult{
@@ -228,7 +243,10 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		}
 	}
 
-	request := buildTestRequest(testModel, endpointType, channel, isStream)
+	request := probe
+	if request == nil {
+		request = buildTestRequest(testModel, endpointType, channel, isStream)
+	}
 
 	info, err := relaycommon.GenRelayInfo(c, relayFormat, request, nil)
 
@@ -481,7 +499,9 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		}
 	}
 	result := w.Result()
-	respBody, err := readTestResponseBody(result.Body, isStream)
+	// A connectivity test only needs the head of a stream; a probe needs
+	// the whole reply.
+	respBody, err := readTestResponseBody(result.Body, isStream && probe == nil)
 	if err != nil {
 		return testResult{
 			context:     c,
@@ -517,11 +537,11 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		Other:            other,
 	})
 	common.SysLog(common.LogText("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
-	return testResult{
-		context:     c,
-		localErr:    nil,
-		newAPIError: nil,
+	tested := testResult{context: c, responseBody: respBody, mappedModel: info.UpstreamModelName}
+	if info.ResponseModel != nil {
+		tested.declaredModel = info.ResponseModel.ReturnedModel
 	}
+	return tested
 }
 
 func attachTestBillingRequestInput(info *relaycommon.RelayInfo, request dto.Request) error {
@@ -596,10 +616,12 @@ func coerceTestUsage(usageAny any, isStream bool, estimatePromptTokens int) (*dt
 	}
 }
 
-func readTestResponseBody(body io.ReadCloser, isStream bool) ([]byte, error) {
+// readTestResponseBody reads a recorded reply, only the head of it when
+// limitStream is set.
+func readTestResponseBody(body io.ReadCloser, limitStream bool) ([]byte, error) {
 	defer func() { _ = body.Close() }()
 	const maxStreamLogBytes = 8 << 10
-	if isStream {
+	if limitStream {
 		return io.ReadAll(io.LimitReader(body, maxStreamLogBytes))
 	}
 	return io.ReadAll(body)

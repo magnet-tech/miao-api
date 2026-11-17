@@ -466,6 +466,10 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'user_token.key_view': 'Full API key of user ID {{target_user_id}} viewed',
   'user_token.key_view_batch':
     'Full API keys of user ID {{target_user_id}} viewed',
+  'model_replacement.settings_update':
+    'Updated the model replacement detection settings',
+  'model_replacement.run':
+    'Started a model replacement detection run ({{trigger}})',
   'user.token_session_start':
     'Verified to manage the API keys of user ID {{target_user_id}}',
   'access_token.generate': 'Created an access token',

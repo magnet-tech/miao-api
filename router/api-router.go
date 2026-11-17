@@ -253,6 +253,26 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.PUT("/email_templates", middleware.RootAuth(), middleware.DisableCache(), controller.UpdateEmailTemplates)
 		apiRouter.GET("/usage_limits/users", middleware.AdminAuth(), middleware.DisableCache(), controller.GetUsageLimitOverview)
 
+		// Model replacement detection.
+		detectionRoute := apiRouter.Group("/model_replacement")
+		detectionRoute.Use(middleware.AdminAuth(), middleware.DisableCache())
+		{
+			read := middleware.RequirePermission(authz.ModelReplacementRead)
+			operate := middleware.RequirePermission(authz.ModelReplacementOperate)
+			configure := middleware.RequirePermission(authz.ModelReplacementConfigure)
+			detectionRoute.GET("/overview", read, controller.GetDetectionOverview)
+			detectionRoute.GET("/settings", read, controller.GetDetectionSettings)
+			detectionRoute.PUT("/settings", configure, controller.UpdateDetectionSettings)
+			detectionRoute.GET("/candidates", read, controller.GetDetectionCandidates)
+			detectionRoute.GET("/channels", read, controller.GetDetectionChannels)
+			detectionRoute.GET("/runs", read, controller.ListDetectionRuns)
+			detectionRoute.GET("/runs/:id", read, controller.GetDetectionRun)
+			detectionRoute.GET("/runs/:id/cell", read, controller.GetDetectionCell)
+			detectionRoute.POST("/run", operate, controller.StartDetectionRun)
+			detectionRoute.POST("/channels/:id/run", operate, controller.RetestDetectionChannel)
+			detectionRoute.POST("/trial", middleware.CriticalRateLimit(), operate, controller.TrialDetection)
+		}
+
 		optionRoute := apiRouter.Group("/option")
 		optionRoute.Use(middleware.RootAuth())
 		{

@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -282,6 +283,8 @@ func Register(c *gin.Context) {
 	}
 	if common.EmailVerificationEnabled {
 		cleanUser.Email = user.Email
+		// The registration code was delivered to this address.
+		cleanUser.EmailVerified = cleanUser.Email != ""
 	}
 	if err := cleanUser.Insert(inviterId); err != nil {
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
@@ -496,32 +499,34 @@ func buildSelfUserData(user *model.User) map[string]any {
 	permissions := calculateUserPermissions(user.Role)
 	permissions["admin_permissions"] = authz.Capabilities(user.Id, user.Role)
 	return map[string]any{
-		"id":                user.Id,
-		"username":          user.Username,
-		"display_name":      user.DisplayName,
-		"has_password":      user.HasPassword,
-		"role":              user.Role,
-		"status":            user.Status,
-		"email":             user.Email,
-		"github_id":         user.GitHubId,
-		"discord_id":        user.DiscordId,
-		"oidc_id":           user.OidcId,
-		"wechat_id":         user.WeChatId,
-		"telegram_id":       user.TelegramId,
-		"group":             user.Group,
-		"quota":             user.Quota,
-		"used_quota":        user.UsedQuota,
-		"request_count":     user.RequestCount,
-		"aff_code":          user.AffCode,
-		"aff_count":         user.AffCount,
-		"aff_quota":         user.AffQuota,
-		"aff_history_quota": user.AffHistoryQuota,
-		"inviter_id":        user.InviterId,
-		"linux_do_id":       user.LinuxDOId,
-		"setting":           user.Setting,
-		"stripe_customer":   user.StripeCustomer,
-		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
-		"permissions":       permissions,
+		"id":                     user.Id,
+		"username":               user.Username,
+		"display_name":           user.DisplayName,
+		"has_password":           user.HasPassword,
+		"role":                   user.Role,
+		"status":                 user.Status,
+		"email":                  user.Email,
+		"email_verified":         user.EmailVerified,
+		"require_verified_email": user.RequireVerifiedEmail && user.Role < common.RoleRootUser,
+		"github_id":              user.GitHubId,
+		"discord_id":             user.DiscordId,
+		"oidc_id":                user.OidcId,
+		"wechat_id":              user.WeChatId,
+		"telegram_id":            user.TelegramId,
+		"group":                  user.Group,
+		"quota":                  user.Quota,
+		"used_quota":             user.UsedQuota,
+		"request_count":          user.RequestCount,
+		"aff_code":               user.AffCode,
+		"aff_count":              user.AffCount,
+		"aff_quota":              user.AffQuota,
+		"aff_history_quota":      user.AffHistoryQuota,
+		"inviter_id":             user.InviterId,
+		"linux_do_id":            user.LinuxDOId,
+		"setting":                user.Setting,
+		"stripe_customer":        user.StripeCustomer,
+		"sidebar_modules":        userSetting.SidebarModules, // 正确提取sidebar_modules字段
+		"permissions":            permissions,
 	}
 }
 
@@ -651,7 +656,19 @@ func GetUserModels(c *gin.Context) {
 
 func UpdateUser(c *gin.Context) {
 	var updatedUser model.User
-	err := common.DecodeJson(c.Request.Body, &updatedUser)
+	// Parse the body twice: model.User cannot tell an omitted
+	// require_verified_email from false, and an omitted field must keep the
+	// stored requirement.
+	body, err := io.ReadAll(c.Request.Body)
+	if err == nil {
+		err = common.Unmarshal(body, &updatedUser)
+	}
+	var requirement struct {
+		RequireVerifiedEmail *bool `json:"require_verified_email"`
+	}
+	if err == nil {
+		err = common.Unmarshal(body, &requirement)
+	}
 	if err != nil || updatedUser.Id == 0 {
 		common.ApiErrorT(c, "Invalid parameters")
 		return
@@ -685,6 +702,15 @@ func UpdateUser(c *gin.Context) {
 		"username": originUser.Username,
 		"id":       updatedUser.Id,
 	}
+	requirementChanged := requirement.RequireVerifiedEmail != nil &&
+		*requirement.RequireVerifiedEmail != originUser.RequireVerifiedEmail
+	if requirementChanged {
+		if !authz.Can(c.GetInt("id"), myRole, authz.UserEmailVerificationWrite) {
+			common.ApiErrorStatus(c, http.StatusForbidden, common.NewMessage("No permission to change the email verification requirement"))
+			return
+		}
+		auditParams["require_verified_email"] = *requirement.RequireVerifiedEmail
+	}
 	// Resetting a password or rewriting the admin permission matrix changes what
 	// the managed account can do or who can sign in to it.
 	if updatePassword || updatedUser.AdminPermissions != nil {
@@ -701,6 +727,11 @@ func UpdateUser(c *gin.Context) {
 		if err := updatedUser.EditWithTx(tx, updatePassword); err != nil {
 			return err
 		}
+		if requirementChanged {
+			if err := model.SetUserRequireVerifiedEmailWithTx(tx, updatedUser.Id, *requirement.RequireVerifiedEmail); err != nil {
+				return err
+			}
+		}
 		touched, err := updateAdminPermissionsForUserInTx(c, tx, updatedUser.Id, originUser.Role, updatedUser.AdminPermissions)
 		authzTouched = touched
 		return err
@@ -713,6 +744,9 @@ func UpdateUser(c *gin.Context) {
 			common.ApiError(c, err)
 			return
 		}
+	}
+	if requirementChanged {
+		model.InvalidateEmailVerificationGate(updatedUser.Id)
 	}
 	if updatedUser.AuthVersion > originUser.AuthVersion {
 		if _, err := model.RevokeAllUserSessions(updatedUser.Id, "admin_user_update"); err != nil {
@@ -1021,6 +1055,13 @@ func CreateUser(c *gin.Context) {
 		return
 	}
 	auditParams := map[string]any{"role": user.Role}
+	if user.RequireVerifiedEmail {
+		if !authz.Can(c.GetInt("id"), myRole, authz.UserEmailVerificationWrite) {
+			common.ApiErrorStatus(c, http.StatusForbidden, common.NewMessage("No permission to change the email verification requirement"))
+			return
+		}
+		auditParams["require_verified_email"] = true
+	}
 	// Creating an administrator grants privilege just like promoting one.
 	if user.Role >= common.RoleAdminUser {
 		authorization := requireAdminUserProof(c, service.VerificationScopeAdminUserCreate, service.AdminUserCreateContext{Role: user.Role})
@@ -1031,10 +1072,11 @@ func CreateUser(c *gin.Context) {
 	}
 	// Even for admin users, we cannot fully trust them!
 	cleanUser := model.User{
-		Username:    user.Username,
-		Password:    user.Password,
-		DisplayName: user.DisplayName,
-		Role:        user.Role, // 保持管理员设置的角色
+		Username:             user.Username,
+		Password:             user.Password,
+		DisplayName:          user.DisplayName,
+		Role:                 user.Role, // 保持管理员设置的角色
+		RequireVerifiedEmail: user.RequireVerifiedEmail,
 	}
 	authzTouched := false
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {

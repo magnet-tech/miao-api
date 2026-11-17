@@ -26,6 +26,7 @@ import { toast } from 'sonner'
 
 import {
   SideDrawerSection,
+  sideDrawerSwitchItemClassName,
   sideDrawerContentClassName,
   sideDrawerFooterClassName,
   sideDrawerFormClassName,
@@ -62,6 +63,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
   ADMIN_PERMISSION_ACTIONS,
@@ -409,6 +411,56 @@ export function UsersMutateDrawer({
                   )}
                 />
               </SideDrawerSection>
+
+              {/* Email verification requirement (fork feature) */}
+              {(form.watch('role') ?? 1) < ROLE.SUPER_ADMIN &&
+                hasPermission(
+                  currentUser,
+                  'user_email_verification',
+                  'write'
+                ) && (
+                  <SideDrawerSection>
+                    <h3 className='text-sm font-medium'>
+                      {t('Email Verification')}
+                    </h3>
+                    <FormField
+                      control={form.control}
+                      name='require_verified_email'
+                      render={({ field }) => (
+                        <FormItem className={sideDrawerSwitchItemClassName()}>
+                          <div className='space-y-1'>
+                            <FormLabel>
+                              {t('Require a verified email to use the service')}
+                            </FormLabel>
+                            <FormDescription>
+                              {t(
+                                'When on and the email is not verified, API key requests are rejected and the console asks the user to verify after sign-in.'
+                              )}
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Switch
+                              checked={field.value ?? false}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    {isUpdate && (
+                      <p className='text-muted-foreground text-xs'>
+                        {currentRow?.email
+                          ? t('Current email: {{email}} ({{state}})', {
+                              email: currentRow.email,
+                              state: currentRow.email_verified
+                                ? t('verified')
+                                : t('not verified'),
+                            })
+                          : t('This user has no email address yet.')}
+                      </p>
+                    )}
+                  </SideDrawerSection>
+                )}
 
               {/* Group & Quota Settings (Update only) */}
               {isUpdate && (

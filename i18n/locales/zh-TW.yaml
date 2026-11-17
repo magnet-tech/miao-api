@@ -4,6 +4,7 @@
 # Errors returned to AI clients
 common.database_error: "資料庫出錯，請聯繫管理員"
 auth.user_banned: "使用者已被封禁"
+auth.email_verification_required: "管理員要求驗證電子郵件，驗證前 API 存取已暫停。請登入控制台完成電子郵件驗證。"
 token.get_info_failed: "獲取令牌資訊失敗，請稍後重試"
 token.invalid: "無效的令牌"
 token.not_provided: "未提供令牌"

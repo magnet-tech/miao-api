@@ -141,7 +141,12 @@ func FinishEmailBinding(identity AuthIdentity, token, newCode, oldCode string) (
 	if _, err := ValidateAccountEmail(state.Email); err != nil {
 		return nil, err
 	}
-	return model.CompleteEmailBinding(identity, token, state.Email, newCode, oldCode)
+	completed, err := model.CompleteEmailBinding(identity, token, state.Email, newCode, oldCode)
+	if err == nil {
+		// The new address is verified; a required verification may now pass.
+		model.InvalidateEmailVerificationGate(identity.UserID)
+	}
+	return completed, err
 }
 
 type emailBindingCodes struct {

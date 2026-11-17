@@ -33,6 +33,8 @@ export interface AuthUser {
   username: string
   display_name?: string
   email?: string
+  email_verified?: boolean
+  require_verified_email?: boolean
   role: number
   status?: number
   group?: string

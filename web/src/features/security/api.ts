@@ -217,3 +217,49 @@ export function enable2FA(
     )
   )
 }
+
+/** A code sent for an administrator-required email verification. */
+export interface EmailVerificationFlow {
+  flow_token: string
+  email: string
+  mode: 'current' | 'required_bind'
+  expires_at: number
+  resend_at: number
+}
+
+/**
+ * Sends a code to the current address, or with `email` to a first address on
+ * an account that has no step-up method.
+ */
+export function startEmailVerification(
+  email: string
+): Promise<EmailVerificationFlow> {
+  return authResult(
+    api.post('/api/user/self/email/verify/start', { email }, authRequestOptions)
+  )
+}
+
+export function resendEmailVerification(
+  flowToken: string
+): Promise<EmailVerificationFlow> {
+  return authResult(
+    api.post(
+      '/api/user/self/email/verify/resend',
+      { flow_token: flowToken },
+      authRequestOptions
+    )
+  )
+}
+
+export function finishEmailVerification(
+  flowToken: string,
+  code: string
+): Promise<{ email: string; email_verified: boolean }> {
+  return authResult(
+    api.post(
+      '/api/user/self/email/verify',
+      { flow_token: flowToken, code },
+      authRequestOptions
+    )
+  )
+}

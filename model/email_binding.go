@@ -138,7 +138,9 @@ func CompleteEmailBinding(identity AuthSessionIdentity, token, email, newCode, o
 		if err := ensureEmailAvailableWithTx(tx, state.Email, identity.UserID); err != nil {
 			return err
 		}
-		if err := tx.Model(&User{}).Where("id = ?", identity.UserID).Update("email", state.Email).Error; err != nil {
+		// Receiving the code at this address proves the user owns it.
+		if err := tx.Model(&User{}).Where("id = ?", identity.UserID).
+			Updates(map[string]any{"email": state.Email, "email_verified": true}).Error; err != nil {
 			return err
 		}
 		return tx.Model(flow).Update("consumed_at", time.Now()).Error

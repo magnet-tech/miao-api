@@ -112,6 +112,12 @@ type User struct {
 	LastLoginAt          int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
 	AuthVersion          int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
 	AdminPermissions     map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
+
+	// EmailVerified is true once the user proved they receive mail at Email;
+	// RequireVerifiedEmail is the administrator's per-user requirement. Only
+	// verification flows and administrator updates write them.
+	EmailVerified        bool `json:"email_verified"`
+	RequireVerifiedEmail bool `json:"require_verified_email"`
 }
 
 func (user *User) ToBaseUser() *UserBase {
@@ -841,6 +847,8 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 		"aff_quota",
 		"aff_history",
 		"auth_version",
+		"email_verified",
+		"require_verified_email",
 	).Updates(newUser).Error; err != nil {
 		return err
 	}
@@ -925,7 +933,11 @@ func (user *User) ClearBinding(bindingType string) error {
 	}
 
 	if err := DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&User{}).Where("id = ?", user.Id).Update(column, "").Error; err != nil {
+		updates := map[string]any{column: ""}
+		if column == "email" {
+			updates["email_verified"] = false
+		}
+		if err := tx.Model(&User{}).Where("id = ?", user.Id).Updates(updates).Error; err != nil {
 			return err
 		}
 		if bindingType == ExternalIdentityProviderTelegram {
@@ -938,6 +950,9 @@ func (user *User) ClearBinding(bindingType string) error {
 
 	if err := DB.Where("id = ?", user.Id).First(user).Error; err != nil {
 		return err
+	}
+	if column == "email" {
+		InvalidateEmailVerificationGate(user.Id)
 	}
 
 	return updateUserCache(*user)

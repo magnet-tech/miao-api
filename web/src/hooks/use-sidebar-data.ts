@@ -23,6 +23,7 @@ import {
   CreditCard,
   FileText,
   FlaskConical,
+  Gauge,
   Key,
   LayoutDashboard,
   ListTodo,
@@ -40,7 +41,9 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import type { SidebarBadges, SidebarData } from '@/components/layout/types'
+import { hasPermission } from '@/lib/admin-permissions'
 import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -50,6 +53,7 @@ import { ROLE } from '@/lib/roles'
  */
 export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
   const { t } = useTranslation()
+  const user = useAuthStore((state) => state.auth.user)
 
   return {
     navGroups: [
@@ -147,6 +151,9 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             url: '/users',
             icon: Users,
           },
+          ...(hasPermission(user, 'user_limit', 'read')
+            ? [{ title: t('Usage Limits'), url: '/usage-limits', icon: Gauge }]
+            : []),
           {
             title: t('Redemption Codes'),
             url: '/redemption-codes',

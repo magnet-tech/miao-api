@@ -27,6 +27,8 @@ var auditContentTemplates = map[string]string{
 	"user.email_verification_start":  "Requested an email verification code",
 	"user.email_verification_finish": "Verified an email address",
 	"option.email_templates_update":  "Updated the account notice email templates",
+	"user.limits_update":             "Updated usage limits of user ${target_username}",
+	"user.limits_reset":              "Reset usage limit windows of user ${target_username}",
 	"user.quota_add":                 "Increased user quota by ${quota}",
 	"user.quota_subtract":            "Decreased user quota by ${quota}",
 	"user.quota_override":            "Overrode user quota from ${from} to ${to}",

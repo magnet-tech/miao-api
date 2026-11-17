@@ -107,6 +107,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.PUT("/self", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.UpdateSelf)
 				selfRoute.DELETE("/self", middleware.DisableCache(), controller.DeleteSelf)
 				selfRoute.POST("/self/email/test", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("admin-email"), controller.SendSelfTestEmail)
+				selfRoute.GET("/self/limits", controller.GetSelfLimits)
 				accessTokenRoute := selfRoute.Group("/access_tokens")
 				accessTokenRoute.Use(middleware.DisableCache())
 				{
@@ -181,6 +182,12 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.POST("/:id/email", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("admin-email"), middleware.DisableCache(), controller.SendUserEmail)
 				adminRoute.POST("/:id/notice", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("admin-email"), middleware.DisableCache(), controller.SendAccountNotice)
 				adminRoute.GET("/:id/email/history", middleware.DisableCache(), controller.GetUserEmailHistory)
+
+				// Usage limits and the concurrency cap of a user.
+				adminRoute.GET("/:id/limits", middleware.DisableCache(), controller.GetUserLimits)
+				adminRoute.PUT("/:id/limits", middleware.DisableCache(), controller.UpdateUserLimits)
+				adminRoute.POST("/:id/limits/reset", middleware.DisableCache(), controller.ResetUserLimitWindows)
+				adminRoute.GET("/:id/limits/models", middleware.DisableCache(), controller.GetUserLimitModels)
 			}
 		}
 
@@ -222,6 +229,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.POST("/subscription/epay/return", anonymousRequestBodyLimit, controller.SubscriptionEpayReturn)
 		apiRouter.GET("/email_templates", middleware.AdminAuth(), middleware.DisableCache(), controller.GetEmailTemplates)
 		apiRouter.PUT("/email_templates", middleware.RootAuth(), middleware.DisableCache(), controller.UpdateEmailTemplates)
+		apiRouter.GET("/usage_limits/users", middleware.AdminAuth(), middleware.DisableCache(), controller.GetUsageLimitOverview)
 
 		optionRoute := apiRouter.Group("/option")
 		optionRoute.Use(middleware.RootAuth())

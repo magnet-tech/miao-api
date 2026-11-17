@@ -28,6 +28,7 @@ import {
   ShieldAlert,
   Link2,
   CreditCard,
+  Gauge,
   Mail,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -49,6 +50,7 @@ import {
 } from '@/components/ui/tooltip'
 import type { AdminUserManageAction } from '@/features/auth/secure-verification'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
+import { UserLimitsDrawer } from '@/features/usage-limits/components/user-limits-drawer'
 import type { NoticeKind } from '@/features/user-emails/api'
 import { AccountNoticeDialog } from '@/features/user-emails/components/account-notice-dialog'
 import { UserEmailDrawer } from '@/features/user-emails/components/user-email-drawer'
@@ -94,6 +96,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
+  const [limitsOpen, setLimitsOpen] = useState(false)
   const [emailOpen, setEmailOpen] = useState(false)
   const [notice, setNotice] = useState<{
     kind: NoticeKind
@@ -304,6 +307,16 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuShortcut>
         </DropdownMenuItem>
 
+        {canManageTarget &&
+          hasPermission(currentUser, 'user_limit', 'read') && (
+            <DropdownMenuItem onClick={() => setLimitsOpen(true)}>
+              {t('Usage Limits')}
+              <DropdownMenuShortcut>
+                <Gauge size={16} />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+          )}
+
         {canEmail && (
           <DropdownMenuItem
             disabled={!user.email}
@@ -395,6 +408,14 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         user={{ id: user.id, username: user.username }}
         onSuccess={triggerRefresh}
       />
+
+      {limitsOpen && (
+        <UserLimitsDrawer
+          open={limitsOpen}
+          onOpenChange={setLimitsOpen}
+          user={{ id: user.id, username: user.username }}
+        />
+      )}
 
       {emailOpen && (
         <UserEmailDrawer

@@ -57,6 +57,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/user/self/email/verify":        accessTokenScopeRule("account_security:write"),
 	"GET /api/email_templates":                accessTokenScopeRule(service.AccessTokenScopeOf(authz.UserEmailSend)),
 	"PUT /api/email_templates":                accessTokenScopeRule("option:write"),
+	"GET /api/usage_limits/users":             accessTokenScopeRule(service.AccessTokenScopeOf(authz.UserLimitRead)),
 	"POST /api/oauth/wechat/bind":             accessTokenScopeRule("account_security:write"),
 	"POST /api/oauth/telegram/bind/start":     accessTokenSessionRule,
 	"GET /api/oauth/:provider":                accessTokenSessionRule,
@@ -73,6 +74,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"PUT /api/user/self":                           accessTokenScopeRule("profile:write"),
 	"DELETE /api/user/self":                        accessTokenScopeRule("account_security:write"),
 	"POST /api/user/self/email/test":               accessTokenScopeRule(service.AccessTokenScopeOf(authz.UserEmailSend)),
+	"GET /api/user/self/limits":                    accessTokenScopeRule("profile:read"),
 	"GET /api/user/access_tokens":                  accessTokenSessionRule,
 	"GET /api/user/access_tokens/catalog":          accessTokenSessionRule,
 	"GET /api/user/access_tokens/scopes":           accessTokenSessionRule,
@@ -130,6 +132,10 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/user/:id/email":                         accessTokenScopeRule(service.AccessTokenScopeOf(authz.UserEmailSend)),
 	"POST /api/user/:id/notice":                        accessTokenScopeRule(service.AccessTokenScopeOf(authz.UserEmailSend)),
 	"GET /api/user/:id/email/history":                  accessTokenScopeRule(service.AccessTokenScopeOf(authz.UserEmailSend)),
+	"GET /api/user/:id/limits":                         accessTokenScopeRule(service.AccessTokenScopeOf(authz.UserLimitRead)),
+	"PUT /api/user/:id/limits":                         accessTokenScopeRule(service.AccessTokenScopeOf(authz.UserLimitWrite)),
+	"POST /api/user/:id/limits/reset":                  accessTokenScopeRule(service.AccessTokenScopeOf(authz.UserLimitReset)),
+	"GET /api/user/:id/limits/models":                  accessTokenScopeRule(service.AccessTokenScopeOf(authz.UserLimitRead)),
 
 	// router/api-router.go: /api/subscription
 	"GET /api/subscription/plans":                                    accessTokenScopeRule("wallet:read"),

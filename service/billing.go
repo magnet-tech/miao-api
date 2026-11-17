@@ -21,6 +21,7 @@ const (
 // 会话存储在 relayInfo.Billing 上，供后续 Settle / Refund 使用。
 // 会话已存在时（任务重试换到另一个渠道）把预扣补到 preConsumedQuota，
 // 和首次预扣一样必须由余额覆盖。
+// 首次预扣前检查用户用量限额；演练场请求不受用量限额约束。
 func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
 	if relayInfo != nil && relayInfo.QuotaClamp != nil {
 		return types.NewErrorWithStatusCode(
@@ -47,6 +48,11 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry())
 		}
 		return nil
+	}
+	if !relayInfo.IsPlayground {
+		if apiErr := CheckUserUsageLimit(c, relayInfo.UserId, relayInfo.OriginModelName, 0); apiErr != nil {
+			return apiErr
+		}
 	}
 	session, apiErr := NewBillingSession(c, relayInfo, preConsumedQuota)
 	if apiErr != nil {

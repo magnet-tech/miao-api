@@ -145,16 +145,18 @@ func productionPluginRouteHandlers(generation *jsplugin.RoutingGeneration, group
 			c.Writer.Status(),
 		)
 	}
-	return []gin.HandlerFunc{
+	handlers := []gin.HandlerFunc{
 		pinRoute,
 		middleware.NativeRouteCredential(keys...),
 		middleware.TokenAuth(),
 		middleware.SystemPerformanceCheck(),
 		middleware.ModelRequestRateLimit(),
-		middleware.PrepareTaskPluginRoute(),
-		middleware.Distribute(),
-		controller.RelayTask,
 	}
+	// Task queries do not count toward the user's concurrency limit.
+	if binding.Route.Type != jsplugin.RouteTypeQuery {
+		handlers = append(handlers, middleware.UserConcurrencyLimit())
+	}
+	return append(handlers, middleware.PrepareTaskPluginRoute(), middleware.Distribute(), controller.RelayTask)
 }
 
 func (b *pluginGenerationBuilder) prepare(candidate, current *jsplugin.RoutingGeneration) (jsplugin.PreparedRoutingGeneration, error) {

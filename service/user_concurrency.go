@@ -7,161 +7,137 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-
-	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/go-redis/redis/v8"
 )
 
 const (
-	// UserConcurrencyRetryAfterSeconds is the Retry-After a request rejected by
-	// the concurrency limit carries.
-	UserConcurrencyRetryAfterSeconds = 5
+	// UserConcurrencyRetryAfter is the Retry-After, in seconds, of a request
+	// turned away by the concurrency limit.
+	UserConcurrencyRetryAfter = 5
 
-	userConcurrencyLeaseTTL      = 90 * time.Second
-	userConcurrencyRenewInterval = 30 * time.Second
-	userConcurrencyRedisTimeout  = 2 * time.Second
+	concurrencyLeaseTTL     = 90 * time.Second
+	concurrencyRenewEvery   = 30 * time.Second
+	concurrencyRedisTimeout = 2 * time.Second
 )
 
-// userConcurrencyAcquireScript drops expired leases, then adds one lease when
-// the user is below the limit. KEYS[1] = lease set; ARGV = now ms, limit,
-// lease expiry ms, lease id, key TTL ms. Returns 1 when acquired.
-const userConcurrencyAcquireScript = `
+// With Redis every instance shares one sorted set per user holding the leases
+// of its running requests, scored by when they expire. A running request
+// renews its lease, so the lease of a request on a stopped instance expires on
+// its own. Without Redis there is one instance and an in-process count.
+var acquireConcurrencyScript = redis.NewScript(`
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
 if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[2]) then
   return 0
 end
 redis.call('ZADD', KEYS[1], ARGV[3], ARGV[4])
 redis.call('PEXPIRE', KEYS[1], ARGV[5])
-return 1`
+return 1`)
 
-var userConcurrencyAcquire = redis.NewScript(userConcurrencyAcquireScript)
+var (
+	concurrencyMu    sync.Mutex
+	concurrencyLocal = map[int]int{}
+)
 
-// UserConcurrencyLease is one in-flight relay request counted against the
-// user's concurrency limit. Release frees it exactly once.
-type UserConcurrencyLease struct {
-	userId int
-	id     string // set for Redis leases only
+func concurrencyKey(userID int) string {
+	return "user_concurrency:" + strconv.Itoa(userID)
+}
+
+func concurrencyUsesRedis() bool {
+	return common.RedisEnabled && common.RDB != nil
+}
+
+// ConcurrencyLease is one running request counted against its user's
+// concurrency limit.
+type ConcurrencyLease struct {
+	userID int
+	member string // the Redis lease; empty for the in-process count
+	stop   context.CancelFunc
 	once   sync.Once
 }
 
-var (
-	userConcurrencyMemoryMu sync.Mutex
-	userConcurrencyMemory   = map[int]int{}
-
-	// userConcurrencyRedisLeases holds this instance's live Redis leases so a
-	// single renewer can extend them; a crashed instance's leases expire.
-	userConcurrencyRedisLeases sync.Map
-	userConcurrencyRenewOnce   sync.Once
-)
-
-func userConcurrencyKey(userId int) string {
-	return "user_concurrency:" + strconv.Itoa(userId)
-}
-
-// AcquireUserConcurrency takes one in-flight slot for the user. It reports
-// false when the user already has maxConcurrency requests in flight. With
-// Redis the count is shared by all instances; without it each instance counts
-// its own requests.
-func AcquireUserConcurrency(userId int, maxConcurrency int) (*UserConcurrencyLease, bool, error) {
-	if !common.RedisEnabled || common.RDB == nil {
-		userConcurrencyMemoryMu.Lock()
-		defer userConcurrencyMemoryMu.Unlock()
-		if userConcurrencyMemory[userId] >= maxConcurrency {
+// AcquireUserConcurrency takes a slot for one request of the user, or reports
+// false when the user already runs limit requests.
+func AcquireUserConcurrency(userID int, limit int) (*ConcurrencyLease, bool, error) {
+	if !concurrencyUsesRedis() {
+		concurrencyMu.Lock()
+		defer concurrencyMu.Unlock()
+		if concurrencyLocal[userID] >= limit {
 			return nil, false, nil
 		}
-		userConcurrencyMemory[userId]++
-		return &UserConcurrencyLease{userId: userId}, true, nil
+		concurrencyLocal[userID]++
+		return &ConcurrencyLease{userID: userID}, true, nil
 	}
 
-	lease := &UserConcurrencyLease{userId: userId, id: common.GetUUID()}
+	lease := &ConcurrencyLease{userID: userID, member: common.GetUUID()}
 	now := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), userConcurrencyRedisTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), concurrencyRedisTimeout)
 	defer cancel()
-	acquired, err := userConcurrencyAcquire.Run(ctx, common.RDB, []string{userConcurrencyKey(userId)},
-		now.UnixMilli(),
-		maxConcurrency,
-		now.Add(userConcurrencyLeaseTTL).UnixMilli(),
-		lease.id,
-		userConcurrencyLeaseTTL.Milliseconds(),
+	acquired, err := acquireConcurrencyScript.Run(ctx, common.RDB, []string{concurrencyKey(userID)},
+		now.UnixMilli(), limit, now.Add(concurrencyLeaseTTL).UnixMilli(), lease.member, concurrencyLeaseTTL.Milliseconds(),
 	).Int()
-	if err != nil {
+	if err != nil || acquired != 1 {
 		return nil, false, err
 	}
-	if acquired != 1 {
-		return nil, false, nil
-	}
-	userConcurrencyRedisLeases.Store(lease, struct{}{})
-	userConcurrencyRenewOnce.Do(func() {
-		gopool.Go(renewUserConcurrencyLeases)
-	})
+	renewCtx, stop := context.WithCancel(context.Background())
+	lease.stop = stop
+	go lease.renew(renewCtx)
 	return lease, true, nil
 }
 
-func (l *UserConcurrencyLease) Release() {
-	if l == nil {
-		return
+func (lease *ConcurrencyLease) renew(ctx context.Context) {
+	ticker := time.NewTicker(concurrencyRenewEvery)
+	defer ticker.Stop()
+	key := concurrencyKey(lease.userID)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		redisCtx, cancel := context.WithTimeout(ctx, concurrencyRedisTimeout)
+		// ZADD XX only updates a lease that still exists, so a renewal racing
+		// the release never brings the lease back.
+		_, err := common.RDB.TxPipelined(redisCtx, func(pipe redis.Pipeliner) error {
+			pipe.ZAddXX(redisCtx, key, &redis.Z{Score: float64(time.Now().Add(concurrencyLeaseTTL).UnixMilli()), Member: lease.member})
+			pipe.PExpire(redisCtx, key, concurrencyLeaseTTL)
+			return nil
+		})
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			common.SysError(common.LogText("failed to renew a concurrency lease of user %d: %s", lease.userID, err.Error()))
+		}
 	}
-	l.once.Do(func() {
-		if l.id == "" {
-			userConcurrencyMemoryMu.Lock()
-			defer userConcurrencyMemoryMu.Unlock()
-			userConcurrencyMemory[l.userId]--
-			if userConcurrencyMemory[l.userId] <= 0 {
-				delete(userConcurrencyMemory, l.userId)
+}
+
+// Release frees the slot; later calls do nothing.
+func (lease *ConcurrencyLease) Release() {
+	lease.once.Do(func() {
+		if lease.member == "" {
+			concurrencyMu.Lock()
+			defer concurrencyMu.Unlock()
+			if concurrencyLocal[lease.userID]--; concurrencyLocal[lease.userID] <= 0 {
+				delete(concurrencyLocal, lease.userID)
 			}
 			return
 		}
-		// Leave the renewal set first: renewal uses ZADD XX, so it can never
-		// bring back a lease removed below.
-		userConcurrencyRedisLeases.Delete(l)
-		ctx, cancel := context.WithTimeout(context.Background(), userConcurrencyRedisTimeout)
+		lease.stop()
+		ctx, cancel := context.WithTimeout(context.Background(), concurrencyRedisTimeout)
 		defer cancel()
-		if err := common.RDB.ZRem(ctx, userConcurrencyKey(l.userId), l.id).Err(); err != nil {
-			common.SysError(common.LogText("failed to release user concurrency lease: user %d, %s", l.userId, err.Error()))
+		if err := common.RDB.ZRem(ctx, concurrencyKey(lease.userID), lease.member).Err(); err != nil {
+			common.SysError(common.LogText("failed to release a concurrency lease of user %d: %s", lease.userID, err.Error()))
 		}
 	})
 }
 
-// renewUserConcurrencyLeases keeps long-running requests (streams, realtime
-// sessions) counted: their leases would otherwise expire after the lease TTL.
-func renewUserConcurrencyLeases() {
-	ticker := time.NewTicker(userConcurrencyRenewInterval)
-	defer ticker.Stop()
-	for range ticker.C {
-		if !common.RedisEnabled || common.RDB == nil {
-			continue
-		}
-		expiry := float64(time.Now().Add(userConcurrencyLeaseTTL).UnixMilli())
-		ctx, cancel := context.WithTimeout(context.Background(), userConcurrencyRedisTimeout)
-		pipe := common.RDB.Pipeline()
-		count := 0
-		userConcurrencyRedisLeases.Range(func(key, _ any) bool {
-			lease := key.(*UserConcurrencyLease)
-			userKey := userConcurrencyKey(lease.userId)
-			pipe.ZAddXX(ctx, userKey, &redis.Z{Score: expiry, Member: lease.id})
-			pipe.PExpire(ctx, userKey, userConcurrencyLeaseTTL)
-			count++
-			return true
-		})
-		if count > 0 {
-			if _, err := pipe.Exec(ctx); err != nil {
-				common.SysError(common.LogText("failed to renew user concurrency leases: %s", err.Error()))
-			}
-		}
-		cancel()
+// UserConcurrencyInFlight counts the user's running requests.
+func UserConcurrencyInFlight(userID int) (int, error) {
+	if !concurrencyUsesRedis() {
+		concurrencyMu.Lock()
+		defer concurrencyMu.Unlock()
+		return concurrencyLocal[userID], nil
 	}
-}
-
-// GetUserConcurrencyInUse returns how many relay requests of the user are in
-// flight (on this instance only when Redis is disabled).
-func GetUserConcurrencyInUse(userId int) (int, error) {
-	if !common.RedisEnabled || common.RDB == nil {
-		userConcurrencyMemoryMu.Lock()
-		defer userConcurrencyMemoryMu.Unlock()
-		return userConcurrencyMemory[userId], nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), userConcurrencyRedisTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), concurrencyRedisTimeout)
 	defer cancel()
-	count, err := common.RDB.ZCount(ctx, userConcurrencyKey(userId), "("+strconv.FormatInt(time.Now().UnixMilli(), 10), "+inf").Result()
+	count, err := common.RDB.ZCount(ctx, concurrencyKey(userID), strconv.FormatInt(time.Now().UnixMilli(), 10), "+inf").Result()
 	return int(count), err
 }

@@ -27,43 +27,14 @@ import type {
   SidebarBadges,
 } from '@/components/layout/types'
 import { useModelPricingIssueBadge } from '@/features/system-settings/models/pricing-issues'
-import { hasPermission } from '@/lib/admin-permissions'
 import { ROLE } from '@/lib/roles'
-import { type AuthUser, useAuthStore } from '@/stores/auth-store'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { useSidebarConfig } from './use-sidebar-config'
 import { useSidebarData } from './use-sidebar-data'
 
 /** Sentinel key used for the root navigation in animation `key=` props */
 const ROOT_VIEW_KEY = '__root'
-
-/**
- * Narrows root navigation to what the user may open: the admin group needs
- * an admin role, and items can also require a minimum role or an admin
- * permission.
- */
-export function filterNavGroupsForUser(
-  groups: NavGroup[],
-  user: AuthUser | null | undefined
-): NavGroup[] {
-  const role = user?.role ?? ROLE.GUEST
-  const isAdmin = role >= ROLE.ADMIN
-  return groups
-    .filter((group) => (group.id === 'admin' ? isAdmin : true))
-    .map((group) => {
-      const items = group.items.filter(
-        (item) =>
-          (item.requiredRole === undefined || role >= item.requiredRole) &&
-          (item.requiredPermission === undefined ||
-            hasPermission(
-              user,
-              item.requiredPermission.resource,
-              item.requiredPermission.action
-            ))
-      )
-      return items.length === group.items.length ? group : { ...group, items }
-    })
-}
 
 /**
  * Resolve the active sidebar view for the current location.
@@ -81,16 +52,24 @@ export function filterNavGroupsForUser(
 export function useSidebarView(): ResolvedSidebarView {
   const { t } = useTranslation()
   const pathname = useLocation({ select: (l) => l.pathname })
-  const user = useAuthStore((s) => s.auth.user)
+  const userRole = useAuthStore((s) => s.auth.user?.role)
   const modelPricingBadge = useModelPricingIssueBadge()
   const badges: SidebarBadges = { modelPricing: modelPricingBadge }
   const rootSidebarData = useSidebarData(badges)
   const configFilteredRoot = useSidebarConfig(rootSidebarData.navGroups)
 
-  const rootNavGroups = useMemo<NavGroup[]>(
-    () => filterNavGroupsForUser(configFilteredRoot, user),
-    [configFilteredRoot, user]
-  )
+  const rootNavGroups = useMemo<NavGroup[]>(() => {
+    const role = userRole ?? ROLE.GUEST
+    const isAdmin = role >= ROLE.ADMIN
+    return configFilteredRoot
+      .filter((group) => (group.id === 'admin' ? isAdmin : true))
+      .map((group) => {
+        const items = group.items.filter(
+          (item) => item.requiredRole === undefined || role >= item.requiredRole
+        )
+        return items.length === group.items.length ? group : { ...group, items }
+      })
+  }, [configFilteredRoot, userRole])
 
   const view = resolveSidebarView(pathname)
 

@@ -24,6 +24,10 @@ import {
   splitBillingExprAndRequestRules,
   type ParsedTier,
 } from '@/features/pricing/lib/billing-expr'
+import {
+  getCachePriceLabels,
+  getTierCachePricingMode,
+} from '@/features/pricing/lib/cache-pricing'
 import { translateServerText } from '@/lib/server-error-message'
 
 import type { UsageLog } from '../data/schema'
@@ -343,7 +347,8 @@ export function hasAnyCacheTokens(
 }
 
 export function getTieredBillingSummary(
-  other: LogOtherData | null
+  other: LogOtherData | null,
+  modelName?: string
 ): TieredBillingSummary | null {
   if (!other || other.billing_mode !== 'tiered_expr') return null
   const exprStr = decodeBillingExprB64(other.expr_b64)
@@ -402,6 +407,7 @@ export function getTieredBillingSummary(
   }
 
   const cacheTokensPresent = hasAnyCacheTokens(other)
+  const cacheMode = getTierCachePricingMode(tiers, modelName)
 
   const priceEntries: TieredBillingSummary['priceEntries'] = []
   for (const v of BILLING_PRICING_VARS) {
@@ -412,7 +418,7 @@ export function getTieredBillingSummary(
     if (Number.isFinite(price) && price >= 0) {
       priceEntries.push({
         field: v.field,
-        shortLabel: v.shortLabel,
+        shortLabel: getCachePriceLabels(v, cacheMode).shortLabel,
         price,
       })
     }
@@ -457,6 +463,21 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'token.delete_batch': 'API token batch deletion',
   'token.key_view': 'API token key access',
   'token.key_view_batch': 'API token batch key access',
+  'user_token.create': 'API key created for user ID {{target_user_id}}',
+  'user_token.update': 'API key of user ID {{target_user_id}} updated',
+  'user_token.status_update':
+    'API key status of user ID {{target_user_id}} updated',
+  'user_token.delete': 'API key of user ID {{target_user_id}} deleted',
+  'user_token.delete_batch': 'API keys of user ID {{target_user_id}} deleted',
+  'user_token.key_view': 'Full API key of user ID {{target_user_id}} viewed',
+  'user_token.key_view_batch':
+    'Full API keys of user ID {{target_user_id}} viewed',
+  'model_replacement.settings_update':
+    'Updated the model replacement detection settings',
+  'model_replacement.run':
+    'Started a model replacement detection run ({{trigger}})',
+  'user.token_session_start':
+    'Verified to manage the API keys of user ID {{target_user_id}}',
   'access_token.generate': 'Created an access token',
   'access_token.revoke': 'Revoked an access token',
   'access_token.rename': 'Renamed an access token',
@@ -471,6 +492,8 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'user.binding_bind': 'Account binding',
   'user.binding_unbind': 'Account unlinking',
   'user.email_binding_resend': 'Email confirmation code resend',
+  'user.email_verification_start': 'Email verification code request',
+  'user.email_verification_finish': 'Email verification',
 
   login: 'Logged in successfully via {{method}}',
   // User management
@@ -479,12 +502,12 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'user.delete': 'Deleted user {{username}} (ID: {{id}})',
   'user.account_delete': 'Account deletion',
   'user.manage': 'Performed {{action}} on user {{username}} (ID: {{id}})',
+  'user.email_send': 'Sent a {{kind}} email to user {{username}} (ID: {{id}})',
+  'user.limits_update': 'Updated usage limits of user {{target_username}}',
+  'user.limits_reset': 'Reset usage limit windows of user {{target_username}}',
   'user.quota_add': 'Increased user quota by {{quota}}',
   'user.quota_subtract': 'Decreased user quota by {{quota}}',
   'user.quota_override': 'Overrode user quota from {{from}} to {{to}}',
-  'user.email_send': 'Email delivery to user {{target_user_id}}',
-  'user.limits_update': 'Updated usage limits of user {{target_username}}',
-  'user.limits_reset': 'Reset usage limit windows of user {{target_username}}',
   'user.binding_clear': 'Cleared {{bindingType}} binding for user {{username}}',
   'user.2fa_disable': 'Force-disabled two-factor authentication for the user',
   'user.passkey_register': 'Registered a passkey',
@@ -494,6 +517,7 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'user.oauth_unbind': 'Removed an OAuth binding for the user',
   // System settings
   'option.update': 'Updated system setting {{key}}',
+  'option.email_templates_update': 'Updated the account notice email templates',
   'option.passkey_domains':
     'Updated Passkey domains: removed {{domains}}; affected {{known}}; unknown {{unknown}}',
   'option.passkey_domains_confirmed':

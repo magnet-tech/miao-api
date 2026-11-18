@@ -11,13 +11,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const userCacheSchemaVersion = 3
+const userCacheSchemaVersion = 2
 
 type UserBase struct {
 	Id             int    `json:"id"`
 	Group          string `json:"group"`
 	Email          string `json:"email"`
-	EmailVerified  bool   `json:"email_verified"`
 	Quota          int    `json:"quota"`
 	Status         int    `json:"status"`
 	Role           int    `json:"role"`

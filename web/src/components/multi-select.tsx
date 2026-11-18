@@ -55,11 +55,6 @@ export type Option = {
 }
 
 interface MultiSelectProps {
-  'aria-label'?: string
-  'aria-describedby'?: string
-  'aria-invalid'?: React.AriaAttributes['aria-invalid']
-  /** Optional domain-specific search, preserving the built-in default otherwise. */
-  filterOption?: (value: string, query: string) => boolean
   options: Option[]
   selected: string[]
   onChange: (values: string[]) => void
@@ -299,7 +294,6 @@ export function MultiSelect(props: MultiSelectProps) {
   return (
     <Combobox
       multiple
-      filter={props.filterOption}
       items={items}
       value={props.selected}
       onValueChange={handleValueChange}
@@ -418,9 +412,7 @@ export function MultiSelect(props: MultiSelectProps) {
           }
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          aria-label={props['aria-label'] ?? placeholder}
-          aria-describedby={props['aria-describedby']}
-          aria-invalid={props['aria-invalid']}
+          aria-label={placeholder}
         />
       </ComboboxChips>
 

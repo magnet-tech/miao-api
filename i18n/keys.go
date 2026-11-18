@@ -6,12 +6,14 @@ package i18n
 
 // Errors returned to AI clients
 const (
-	MsgDatabaseError          = "common.database_error"
-	MsgAuthUserBanned         = "auth.user_banned"
-	MsgTokenGetInfoFailed     = "token.get_info_failed"
-	MsgTokenInvalid           = "token.invalid"
-	MsgTokenNotProvided       = "token.not_provided"
-	MsgTokenStatusUnavailable = "token.status_unavailable"
+	MsgDatabaseError  = "common.database_error"
+	MsgAuthUserBanned = "auth.user_banned"
+	// MsgAuthEmailVerificationRequired: an administrator requires a verified email.
+	MsgAuthEmailVerificationRequired = "auth.email_verification_required"
+	MsgTokenGetInfoFailed            = "token.get_info_failed"
+	MsgTokenInvalid                  = "token.invalid"
+	MsgTokenNotProvided              = "token.not_provided"
+	MsgTokenStatusUnavailable        = "token.status_unavailable"
 
 	MsgAuthClientIPUnresolved     = "auth.client_ip_unresolved"
 	MsgAuthTokenIPNotAllowed      = "auth.token_ip_not_allowed"
@@ -21,21 +23,6 @@ const (
 
 	MsgRateLimitReached      = "rate_limit.reached"
 	MsgRateLimitTotalReached = "rate_limit.total_reached"
-
-	MsgUserUsageLimitReachedMinutes         = "user_limit.usage_reached_minutes"
-	MsgUserUsageLimitReachedHours           = "user_limit.usage_reached_hours"
-	MsgUserUsageLimitReachedDays            = "user_limit.usage_reached_days"
-	MsgUserUsageLimitReachedCalendar        = "user_limit.usage_reached_calendar"
-	MsgUserUsageLimitReachedCalendarDay     = "user_limit.usage_reached_calendar_day"
-	MsgUserUsageLimitReachedCalendarWeek    = "user_limit.usage_reached_calendar_week"
-	MsgUserUsageLimitReachedCalendarMonth   = "user_limit.usage_reached_calendar_month"
-	MsgUserUsageLimitReachedCalendarQuarter = "user_limit.usage_reached_calendar_quarter"
-	MsgUserUsageLimitReachedCalendarYear    = "user_limit.usage_reached_calendar_year"
-	MsgUserUsageLimitResetDetails           = "user_limit.reset_details"
-	MsgUserUsageLimitDurationMinutes        = "user_limit.duration_minutes"
-	MsgUserUsageLimitDurationHours          = "user_limit.duration_hours"
-	MsgUserUsageLimitDurationDays           = "user_limit.duration_days"
-	MsgUserConcurrencyLimit                 = "user_limit.concurrency_reached"
 
 	MsgDistributorInvalidRequest               = "distributor.invalid_request"
 	MsgDistributorInvalidChannelId             = "distributor.invalid_channel_id"
@@ -57,12 +44,16 @@ const (
 	MsgRelayModelPriceNotConfiguredAdmin = "relay.model_price_not_configured_admin"
 	MsgRelayTaskUsagePriceUnsupported    = "relay.task_usage_price_unsupported"
 	MsgRelaySharedTaskPriceNeedsOverride = "relay.shared_task_price_needs_override"
+	MsgRelayTaskPriceNotConfigured       = "relay.task_price_not_configured"
 	MsgRelayTaskChannelDisabled          = "relay.task_channel_disabled"
 	MsgRelayGroupSaturated               = "relay.group_saturated"
 	MsgRelayGroupUpstreamSaturated       = "relay.group_upstream_saturated"
 	MsgRelayRetryGetChannelFailed        = "relay.retry_get_channel_failed"
 	MsgRelayRetryNoAvailableChannel      = "relay.retry_no_available_channel"
 	MsgRelayAccessTokenUnsupported       = "relay.access_token_unsupported"
+	MsgRelayRequestRejected              = "relay.request_rejected"
+	MsgRelayRequestPluginFailed          = "relay.request_plugin_failed"
+	MsgRelayResponseRejected             = "relay.response_rejected"
 )
 
 // Emails and the name of the token created at registration, in the
@@ -92,6 +83,12 @@ const (
 	MsgEmailSecurityNoticeChanged = "email.security_notice.changed"
 	MsgEmailSecurityNoticeAdvice  = "email.security_notice.advice"
 
+	// Default account notices; administrators can replace them in settings.
+	MsgEmailAccountSuspendedSubject = "email.account_suspended.subject"
+	MsgEmailAccountSuspendedBody    = "email.account_suspended.body"
+	MsgEmailAccountRestoredSubject  = "email.account_restored.subject"
+	MsgEmailAccountRestoredBody     = "email.account_restored.body"
+
 	MsgSecurityEventPasswordUpdated      = "email.security_event.password_updated"
 	MsgSecurityEventEmailChangeRequested = "email.security_event.email_change_requested"
 	MsgSecurityEventEmailChanged         = "email.security_event.email_changed"
@@ -113,13 +110,14 @@ const (
 // Channel notices sent to administrators who receive them and to model update
 // watchers
 const (
-	MsgChannelNotifyDisabledSubject = "channel.notify_disabled_subject"
-	MsgChannelNotifyDisabledContent = "channel.notify_disabled_content"
-	MsgChannelNotifyEnabledSubject  = "channel.notify_enabled_subject"
-	MsgChannelNotifyEnabledContent  = "channel.notify_enabled_content"
-	MsgChannelTestCompletedSubject  = "channel.test_completed_subject"
-	MsgChannelTestCompletedContent  = "channel.test_completed_content"
-	MsgChannelResponseTimeExceeded  = "channel.response_time_exceeded"
+	MsgChannelNotifyDisabledSubject  = "channel.notify_disabled_subject"
+	MsgChannelNotifyDisabledContent  = "channel.notify_disabled_content"
+	MsgChannelNotifyEnabledSubject   = "channel.notify_enabled_subject"
+	MsgChannelNotifyEnabledContent   = "channel.notify_enabled_content"
+	MsgChannelNotifyScheduledSubject = "channel.notify_scheduled_subject"
+	MsgChannelTestCompletedSubject   = "channel.test_completed_subject"
+	MsgChannelTestCompletedContent   = "channel.test_completed_content"
+	MsgChannelResponseTimeExceeded   = "channel.response_time_exceeded"
 
 	MsgChannelUpstreamUpdateNotifySubject   = "channel.upstream_update_notify_subject"
 	MsgChannelUpstreamUpdateSummary         = "channel.upstream_update_summary"

@@ -43,6 +43,13 @@ func TestChannelDeleteRoutesUseSensitiveWritePermission(t *testing.T) {
 	assertChannelRoutePermission(t, http.MethodPost, "/batch/tag", authz.ChannelWrite, controller.BatchSetChannelTag)
 }
 
+func TestPluginLoginRoutesUseExpectedPermissions(t *testing.T) {
+	assertChannelRoutePermission(t, http.MethodPost, "/:id/plugin_login", authz.ChannelSensitiveWrite, controller.StartPluginLogin)
+	assertChannelRoutePermission(t, http.MethodPost, "/:id/plugin_login/continue", authz.ChannelSensitiveWrite, controller.ContinuePluginLogin)
+	assertChannelRoutePermission(t, http.MethodPost, "/plugin_login/callback", authz.ChannelSensitiveWrite, controller.CompletePluginLoginCallback)
+	assertChannelRoutePermission(t, http.MethodGet, "/:id/plugin_credentials", authz.ChannelRead, controller.GetPluginCredentials)
+}
+
 func TestChannelStatusRoutesRegisterWithoutConflict(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
@@ -51,28 +58,6 @@ func TestChannelStatusRoutesRegisterWithoutConflict(t *testing.T) {
 	require.NotPanics(t, func() {
 		registerChannelRoutes(api)
 	})
-}
-
-func TestModelReplacementChannelRetestUsesModelReplacementPermission(t *testing.T) {
-	found := false
-	for _, route := range modelReplacementPermissionRoutes {
-		if route.method == http.MethodPost && route.path == "/channels/:id/run" {
-			assert.Equal(t, authz.ChannelModelReplacement, route.permission)
-			assert.Equal(t, reflect.ValueOf(controller.RunModelReplacementChannelDetection).Pointer(), reflect.ValueOf(route.handler).Pointer())
-			found = true
-		}
-	}
-	require.True(t, found, "single-channel retest route must be registered")
-
-	gin.SetMode(gin.TestMode)
-	engine := gin.New()
-	modelReplacementRoute := engine.Group("/api/model_replacement")
-	for _, route := range modelReplacementPermissionRoutes {
-		handlePermissionRoute(modelReplacementRoute, route.method, route.path, route.permission, route.handler)
-	}
-	recorder := httptest.NewRecorder()
-	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/model_replacement/channels/1/run", nil))
-	assert.Equal(t, http.StatusForbidden, recorder.Code)
 }
 
 func assertChannelRoutePermission(t *testing.T, method string, path string, permission authz.Permission, handler any) {

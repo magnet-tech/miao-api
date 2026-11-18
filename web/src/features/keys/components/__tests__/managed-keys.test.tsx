@@ -18,584 +18,114 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
-  cleanup,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import { afterEach, expect, it, vi } from 'vitest'
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterProvider,
+} from '@tanstack/react-router'
+import { render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { UserApiKeysDrawer } from '@/features/users/components/dialogs/user-api-keys-drawer'
 import { api } from '@/lib/api'
+import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
-import {
-  batchDeleteApiKeys,
-  createApiKey,
-  createManagedApiKeys,
-  deleteApiKey,
-  fetchTokenKey,
-  fetchTokenKeysBatch,
-  updateApiKey,
-  updateApiKeyStatus,
-  type ApiKeysScope,
-} from '../../api'
-import { apiKeySchema, type ApiKeyFormData } from '../../types'
-
-const clients: QueryClient[] = []
-const payload: ApiKeyFormData = {
-  name: 'managed',
-  expired_time: -1,
-  remain_quota: 0,
-  unlimited_quota: true,
-  model_limits_enabled: false,
-  model_limits: '',
-  allow_ips: '',
-  group: 'default',
-  cross_group_retry: false,
-  allow_user_quota_query: true,
-  auto_groups: [],
-}
+import { createApiKey, getApiKeys, type TokenScope } from '../../api'
+import { ApiKeysPrimaryButtons } from '../api-keys-primary-buttons'
+import { ApiKeysProvider } from '../api-keys-provider'
+import { ManagedKeysBanner } from '../managed-keys-banner'
 
 afterEach(() => {
-  cleanup()
-  clients.splice(0).forEach((client) => client.clear())
+  useAuthStore.getState().auth.setUser(null)
   vi.restoreAllMocks()
 })
 
-it.each([
-  {
-    action: 'create',
-    ids: [],
-    count: 1,
-    method: 'post',
-    path: '/',
-    data: payload,
-    run: (scope: ApiKeysScope) => createApiKey(payload, scope),
-  },
-  {
-    action: 'create',
-    ids: [],
-    count: 2,
-    method: 'post',
-    path: '/batch/create',
-    data: { tokens: [payload, payload] },
-    run: (scope: ApiKeysScope) =>
-      createManagedApiKeys([payload, payload], scope),
-  },
-  {
-    action: 'update',
-    ids: [9],
-    count: 0,
-    method: 'put',
-    path: '/',
-    data: { ...payload, id: 9 },
-    run: (scope: ApiKeysScope) => updateApiKey({ ...payload, id: 9 }, scope),
-  },
-  {
-    action: 'status',
-    ids: [9],
-    count: 0,
-    method: 'put',
-    path: '/?status_only=true',
-    data: { id: 9, status: 2 },
-    run: (scope: ApiKeysScope) => updateApiKeyStatus(9, 2, scope),
-  },
-  {
-    action: 'delete',
-    ids: [9],
-    count: 0,
-    method: 'delete',
-    path: '/9/',
-    run: (scope: ApiKeysScope) => deleteApiKey(9, scope),
-  },
-  {
-    action: 'delete_batch',
-    ids: [9, 10],
-    count: 0,
-    method: 'post',
-    path: '/batch',
-    data: { ids: [10, 9] },
-    run: (scope: ApiKeysScope) => batchDeleteApiKeys([10, 9], scope),
-  },
-  {
-    action: 'reveal',
-    ids: [9],
-    count: 0,
-    method: 'post',
-    path: '/9/key',
-    data: undefined,
-    run: (scope: ApiKeysScope) => fetchTokenKey(9, scope),
-  },
-  {
-    action: 'reveal_batch',
-    ids: [9, 10],
-    count: 0,
-    method: 'post',
-    path: '/batch/keys',
-    data: { ids: [10, 9] },
-    run: (scope: ApiKeysScope) => fetchTokenKeysBatch([10, 9], scope),
-  },
-] as const)(
-  'binds $action $path to the owner and a fresh operation proof',
-  async (testCase) => {
-    const authorize = vi.fn().mockResolvedValue('operation-proof')
-    const scope = { userId: 42, authorize }
-    const request = vi
-      .spyOn(api, testCase.method)
-      .mockResolvedValue({ data: { success: true, data: {} } })
-    await testCase.run(scope)
-    expect(authorize).toHaveBeenCalledWith(
-      testCase.action,
-      [...testCase.ids],
-      testCase.count
-    )
-    const options = { headers: { 'X-Security-Proof': 'operation-proof' } }
-    if (testCase.method === 'delete') {
-      expect(request).toHaveBeenCalledWith(
-        `/api/user/42/tokens${testCase.path}`,
-        options
-      )
-    } else {
-      expect(request).toHaveBeenCalledWith(
-        `/api/user/42/tokens${testCase.path}`,
-        testCase.data,
-        options
-      )
-    }
-  }
-)
+describe('managed key requests', () => {
+  it('send another user’s key changes to that user with the session', async () => {
+    const post = vi
+      .spyOn(api, 'post')
+      .mockResolvedValue({ data: { success: true } })
+    const get = vi
+      .spyOn(api, 'get')
+      .mockResolvedValue({ data: { success: true, data: { items: [] } } })
+    const scope: TokenScope = { ownerId: 7, managementToken: 'session-1' }
 
-it('does not send an administrative write when verification is cancelled', async () => {
-  const post = vi.spyOn(api, 'post')
-  await expect(
-    createApiKey(payload, { userId: 42, authorize: async () => null })
-  ).rejects.toMatchObject({ name: 'AbortError' })
-  expect(post).not.toHaveBeenCalled()
+    await createApiKey({ name: 'k' } as never, scope)
+    await getApiKeys({ p: 2, size: 20 }, { ownerId: 7, managementToken: null })
+
+    expect(post).toHaveBeenCalledWith(
+      '/api/user/7/tokens/',
+      { name: 'k' },
+      { headers: { 'X-Key-Management-Session': 'session-1' } }
+    )
+    expect(get).toHaveBeenCalledWith('/api/user/7/tokens/?p=2&size=20')
+  })
+
+  it('leave requests for one’s own keys unchanged', async () => {
+    const post = vi
+      .spyOn(api, 'post')
+      .mockResolvedValue({ data: { success: true } })
+
+    await createApiKey({ name: 'k' } as never)
+
+    expect(post).toHaveBeenCalledWith('/api/token/', { name: 'k' })
+  })
 })
 
-it.each([
-  {
-    method: 'password',
-    label: 'Password',
-    value: 'admin-password',
-    fields: { password: 'admin-password' },
-  },
-  {
-    method: '2fa',
-    label: 'Authenticator code or backup code',
-    value: '123456',
-    fields: { code: '123456' },
-  },
-])(
-  'verifies $method above the nested create drawer before creating keys for the target user',
-  async (testCase) => {
-    const user = userEvent.setup()
-    const revoke = vi
-      .spyOn(api, 'delete')
-      .mockResolvedValue({ data: { success: true } })
-    vi.spyOn(api, 'get').mockImplementation(async (url) => {
-      if (url === '/api/status') return { data: { success: true, data: {} } }
-      if (url === '/api/verify/methods') {
-        return {
-          data: {
-            success: true,
-            data: {
-              scope: 'admin.user.tokens',
-              methods: [{ method: testCase.method, available: true }],
-              oauth_providers: [],
-              password_encryption_enabled: false,
-            },
-          },
-        }
-      }
-      if (url.endsWith('/groups')) {
-        return {
-          data: {
-            success: true,
-            data: { default: { desc: 'Default', ratio: 1 } },
-          },
-        }
-      }
-      if (url.endsWith('/models')) return { data: { success: true, data: [] } }
-      if (url.endsWith('/auto-groups')) {
-        return {
-          data: { success: true, data: { groups: ['default'], max_count: 3 } },
-        }
-      }
-      if (url.startsWith('/api/user/42/tokens/')) {
-        return { data: { success: true, data: { items: [], total: 0 } } }
-      }
-      throw new Error(`Unexpected GET ${url}`)
-    })
-    const post = vi.spyOn(api, 'post').mockImplementation(async (url) => {
-      if (url === '/api/verify') {
-        return {
-          data: {
-            success: true,
-            data: {
-              proof_token: 'fresh-proof',
-              scope: 'admin.user.tokens',
-              method: testCase.method,
-              expires_at: 2000000000,
-            },
-          },
-        }
-      }
-      if (url === '/api/user/42/tokens/batch/create') {
-        return { data: { success: true, data: { count: 1 } } }
-      }
-      if (url === '/api/user/42/tokens/management-session') {
-        return {
-          data: {
-            success: true,
-            data: { management_token: 'drawer-grant', expires_at: 2000000000 },
-          },
-        }
-      }
-      throw new Error(`Unexpected POST ${url}`)
-    })
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
-    clients.push(client)
-    const view = render(
-      <QueryClientProvider client={client}>
-        <UserApiKeysDrawer
-          open
-          onOpenChange={() => {}}
-          user={{ id: 42, username: 'owner-42' }}
-        />
-      </QueryClientProvider>
-    )
-    await user.click(
-      await screen.findByRole('button', { name: 'Create API Key' })
-    )
-    const createDrawer = await screen.findByRole('dialog', {
-      name: 'Create API Key',
-    })
-    const save = within(createDrawer).getByRole('button', {
-      name: 'Save changes',
-    })
-    await waitFor(() => expect(save).toBeEnabled())
-    await user.type(
-      within(createDrawer).getByRole('textbox', { name: 'Name' }),
-      'protected-key'
-    )
-    await user.click(save)
-
-    let verification = await screen.findByRole('dialog', {
-      name: 'Verify API key management',
-    })
-    let input = await within(verification).findByLabelText(testCase.label, {
-      selector: 'input',
-    })
-    await waitFor(() => expect(input).toHaveFocus())
-    expect(
-      document.querySelectorAll('[data-slot="sheet-overlay"]')
-    ).toHaveLength(2)
-    expect(
-      document.querySelectorAll('[data-slot="dialog-overlay"]')
-    ).toHaveLength(1)
-    expect(post).not.toHaveBeenCalled()
-    await user.click(
-      within(verification).getByRole('button', { name: 'Cancel' })
-    )
-    await waitFor(() => expect(save).toBeEnabled())
-    expect(
-      within(createDrawer).getByRole('textbox', { name: 'Name' })
-    ).toHaveValue('protected-key')
-    expect(post).not.toHaveBeenCalled()
-
-    await user.click(save)
-    verification = await screen.findByRole('dialog', {
-      name: 'Verify API key management',
-    })
-    input = await within(verification).findByLabelText(testCase.label, {
-      selector: 'input',
-    })
-    await user.type(input, testCase.value)
-    await user.click(
-      within(verification).getByRole('button', { name: 'Verify' })
-    )
-    await waitFor(() =>
-      expect(post).toHaveBeenCalledWith(
-        '/api/user/42/tokens/batch/create',
-        {
-          tokens: [
-            expect.objectContaining({
-              name: 'protected-key',
-              group: '',
-            }),
-          ],
-        },
-        { headers: { 'X-Key-Management-Session': 'drawer-grant' } }
-      )
-    )
-    expect(post).toHaveBeenCalledWith(
-      '/api/verify',
-      {
-        method: testCase.method,
-        scope: 'admin.user.tokens',
-        context: { user_id: 42, action: 'manage', token_ids: [], count: 0 },
-        ...testCase.fields,
-      },
-      expect.anything()
-    )
-    await waitFor(() =>
-      expect(
-        screen.queryByRole('dialog', { name: 'Create API Key' })
-      ).not.toBeInTheDocument()
-    )
-    expect(screen.getByRole('dialog', { name: 'Key management' })).toBeVisible()
-    await user.click(screen.getByRole('button', { name: 'Create API Key' }))
-    const nextDrawer = await screen.findByRole('dialog', {
-      name: 'Create API Key',
-    })
-    await user.type(
-      within(nextDrawer).getByRole('textbox', { name: 'Name' }),
-      'second-key'
-    )
-    await user.click(
-      within(nextDrawer).getByRole('button', { name: 'Save changes' })
-    )
-    await waitFor(() =>
-      expect(
-        post.mock.calls.filter(
-          ([url]) => url === '/api/user/42/tokens/batch/create'
-        )
-      ).toHaveLength(2)
-    )
-    expect(
-      post.mock.calls.filter(([url]) => url === '/api/verify')
-    ).toHaveLength(1)
-    expect(
-      post.mock.calls.filter(
-        ([url]) => url === '/api/user/42/tokens/management-session'
-      )
-    ).toHaveLength(1)
-    expect(
-      screen.queryByRole('dialog', { name: 'Verify API key management' })
-    ).not.toBeInTheDocument()
-    view.rerender(
-      <QueryClientProvider client={client}>
-        <UserApiKeysDrawer
-          open={false}
-          onOpenChange={() => {}}
-          user={{ id: 42, username: 'owner-42' }}
-        />
-      </QueryClientProvider>
-    )
-    await waitFor(() =>
-      expect(revoke).toHaveBeenCalledWith(
-        '/api/user/42/tokens/management-session',
-        { headers: { 'X-Key-Management-Session': 'drawer-grant' } }
-      )
-    )
-    view.rerender(
-      <QueryClientProvider client={client}>
-        <UserApiKeysDrawer
-          open
-          onOpenChange={() => {}}
-          user={{ id: 42, username: 'owner-42' }}
-        />
-      </QueryClientProvider>
-    )
-    await user.click(
-      await screen.findByRole('button', { name: 'Create API Key' })
-    )
-    const reopened = await screen.findByRole('dialog', {
-      name: 'Create API Key',
-    })
-    await user.type(
-      within(reopened).getByRole('textbox', { name: 'Name' }),
-      'after-reopen'
-    )
-    await user.click(
-      within(reopened).getByRole('button', { name: 'Save changes' })
-    )
-    expect(
-      await screen.findByRole('dialog', { name: 'Verify API key management' })
-    ).toBeVisible()
-    expect(
-      post.mock.calls.filter(
-        ([url]) => url === '/api/user/42/tokens/batch/create'
-      )
-    ).toHaveLength(2)
-  }
-)
-
-it('reuses the keys page inside a drawer with owner-scoped search, metadata and disclosure', async () => {
-  const user = userEvent.setup()
-  const revoke = vi
-    .spyOn(api, 'delete')
-    .mockResolvedValue({ data: { success: true } })
-  const key = apiKeySchema.parse({
-    id: 9,
-    name: 'owner-42-key',
-    key: 'masked-key',
-    status: 1,
-    expired_time: -1,
-    unlimited_quota: true,
-    group: 'customer',
-    remain_quota: 0,
-    used_quota: 0,
-    created_time: 0,
-    accessed_time: 0,
-    model_limits_enabled: false,
+async function renderManaged(user: AuthUser) {
+  useAuthStore.getState().auth.setUser(user)
+  vi.spyOn(api, 'get').mockResolvedValue({ data: { success: true, data: [] } })
+  const root = createRootRoute({
+    component: () => (
+      <ApiKeysProvider owner={{ id: 7, username: 'managed' }}>
+        <ManagedKeysBanner />
+        <ApiKeysPrimaryButtons />
+      </ApiKeysProvider>
+    ),
   })
-  const get = vi.spyOn(api, 'get').mockImplementation(async (url) => {
-    if (url === '/api/status') return { data: { success: true, data: {} } }
-    if (url === '/api/verify/methods') {
-      return {
-        data: {
-          success: true,
-          data: {
-            scope: 'admin.user.tokens',
-            methods: [{ method: 'session', available: true }],
-            oauth_providers: [],
-            password_encryption_enabled: false,
-          },
-        },
-      }
-    }
-    if (url.endsWith('/groups')) {
-      return {
-        data: {
-          success: true,
-          data: { customer: { desc: 'Customer', ratio: 2 } },
-        },
-      }
-    }
-    if (url.endsWith('/models')) {
-      return { data: { success: true, data: ['customer-model'] } }
-    }
-    if (url.endsWith('/auto-groups')) {
-      return {
-        data: { success: true, data: { groups: ['customer'], max_count: 3 } },
-      }
-    }
-    if (url.startsWith('/api/user/42/tokens/')) {
-      return { data: { success: true, data: { items: [key], total: 1 } } }
-    }
-    if (url.startsWith('/api/user/43/tokens/')) {
-      return {
-        data: {
-          success: true,
-          data: { items: [{ ...key, name: 'owner-43-key' }], total: 1 },
-        },
-      }
-    }
-    throw new Error(`Unexpected GET ${url}`)
+  const router = createRouter({
+    routeTree: root,
+    history: createMemoryHistory({ initialEntries: ['/'] }),
   })
-  const post = vi.spyOn(api, 'post').mockImplementation(async (url) => {
-    if (url === '/api/verify') {
-      return {
-        data: {
-          success: true,
-          data: {
-            proof_token: 'fresh-proof',
-            scope: 'admin.user.tokens',
-            method: 'session',
-            expires_at: 2000000000,
-          },
-        },
+  await router.load()
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
       }
-    }
-    if (url === '/api/user/42/tokens/9/key') {
-      return { data: { success: true, data: { key: 'owner-42-secret' } } }
-    }
-    if (url.endsWith('/tokens/management-session')) {
-      return {
-        data: {
-          success: true,
-          data: {
-            management_token: `drawer-${url.includes('/42/') ? 42 : 43}`,
-            expires_at: 2000000000,
-          },
-        },
-      }
-    }
-    if (url === '/api/user/43/tokens/9/key') {
-      return { data: { success: true, data: { key: 'owner-43-secret' } } }
-    }
-    throw new Error(`Unexpected POST ${url}`)
-  })
-  const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  })
-  clients.push(client)
-  const renderDrawer = (id: number) => (
-    <QueryClientProvider client={client}>
-      <UserApiKeysDrawer
-        open
-        onOpenChange={() => {}}
-        user={{ id, username: `owner-${id}` }}
-      />
+    >
+      <RouterProvider router={router} />
     </QueryClientProvider>
   )
-  const view = render(renderDrawer(42))
-  await screen.findByText('owner-42-key')
-  expect(get).toHaveBeenCalledWith('/api/user/42/tokens/?p=1&size=20')
-  expect(get).toHaveBeenCalledWith('/api/user/42/tokens/groups')
-  await user.type(
-    screen.getByPlaceholderText('Filter by name...'),
-    'production'
-  )
-  await waitFor(() =>
-    expect(get).toHaveBeenCalledWith(
-      '/api/user/42/tokens/search?keyword=production&p=1&size=20'
-    )
-  )
-  await user.click(screen.getByRole('button', { name: 'Open menu' }))
-  await user.click(await screen.findByRole('menuitem', { name: 'Copy Key' }))
-  await waitFor(() => expect(copy).toHaveBeenCalledWith('sk-owner-42-secret'))
-  expect(post).toHaveBeenCalledWith(
-    '/api/verify',
-    expect.objectContaining({
-      scope: 'admin.user.tokens',
-      context: { user_id: 42, action: 'manage', token_ids: [], count: 0 },
-    }),
-    expect.anything()
-  )
-  expect(post).toHaveBeenCalledWith('/api/user/42/tokens/9/key', undefined, {
-    headers: { 'X-Key-Management-Session': 'drawer-42' },
-  })
-  await user.click(screen.getByRole('button', { name: 'Create API Key' }))
-  const createDrawer = await screen.findByRole('dialog', {
-    name: 'Create API Key',
-  })
-  await waitFor(() =>
+  await screen.findByText(/Managing the API keys of managed/)
+}
+
+describe('managing another user’s keys', () => {
+  it('stays read-only until the administrator verifies', async () => {
+    await renderManaged({ id: 1, username: 'root', role: 100 })
+
     expect(
-      within(createDrawer).getByRole('button', { name: 'Save changes' })
+      screen.getByRole('button', { name: 'Verify identity' })
     ).toBeEnabled()
-  )
-  expect(get).toHaveBeenCalledWith('/api/user/42/tokens/models')
-  expect(get).toHaveBeenCalledWith('/api/user/42/tokens/auto-groups')
-  view.rerender(renderDrawer(43))
-  await waitFor(() =>
-    expect(revoke).toHaveBeenCalledWith(
-      '/api/user/42/tokens/management-session',
-      { headers: { 'X-Key-Management-Session': 'drawer-42' } }
-    )
-  )
-  await screen.findByText('owner-43-key')
-  expect(screen.queryByText('owner-42-key')).not.toBeInTheDocument()
-  expect(
-    screen.queryByRole('dialog', { name: 'Create API Key' })
-  ).not.toBeInTheDocument()
-  expect(screen.getByPlaceholderText('Filter by name...')).toHaveValue('')
-  await user.click(screen.getByRole('button', { name: 'Open menu' }))
-  await user.click(await screen.findByRole('menuitem', { name: 'Copy Key' }))
-  await waitFor(() => expect(copy).toHaveBeenCalledWith('sk-owner-43-secret'))
-  expect(
-    get.mock.calls.some(
-      ([url]) =>
-        url.startsWith('/api/token') ||
-        url === '/api/user/models' ||
-        url === '/api/user/self/groups'
-    )
-  ).toBe(false)
+    expect(
+      screen.getByRole('button', { name: 'Create API Key' })
+    ).toBeDisabled()
+  })
+
+  it('offers no verification without the permission to manage keys', async () => {
+    await renderManaged({
+      id: 2,
+      username: 'viewer',
+      role: 10,
+      permissions: {
+        admin_permissions: { user_token: { read: true, manage: false } },
+      },
+    })
+
+    expect(
+      screen.queryByRole('button', { name: 'Verify identity' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText('You can view these keys but not change them.')
+    ).toBeVisible()
+  })
 })

@@ -127,11 +127,8 @@ func ChargeViolationFeeIfNeeded(ctx *gin.Context, relayInfo *relaycommon.RelayIn
 		return false
 	}
 
-	if relayInfo.IsPlayground {
-		model.UpdatePlaygroundUserUsedQuotaAndRequestCount(relayInfo.UserId, feeQuota)
-	} else {
-		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, feeQuota, relayInfo.OriginModelName)
-	}
+	model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, feeQuota)
+	RecordRelayUserUsage(relayInfo, feeQuota)
 	model.UpdateChannelUsedQuota(relayInfo.ChannelId, feeQuota)
 
 	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()

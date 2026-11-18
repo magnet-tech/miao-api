@@ -16,8 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { api, getUserGroups, getUserModels } from '@/lib/api'
-import { requireServerSuccess } from '@/lib/server-error-message'
+import { api } from '@/lib/api'
 
 import type {
   ApiKey,
@@ -29,78 +28,42 @@ import type {
   TokenAutoGroupsConfig,
 } from './types'
 
-export type ApiKeyManagementAction =
-  | 'create'
-  | 'update'
-  | 'status'
-  | 'delete'
-  | 'reveal'
-  | 'delete_batch'
-  | 'reveal_batch'
-
-export interface ApiKeysScope {
-  userId: number
-  authorize: (
-    action: ApiKeyManagementAction,
-    tokenIds: number[],
-    count?: number
-  ) => Promise<string | { managementSession: string } | null>
-}
-
-export interface KeyManagementSession {
-  management_token: string
-  expires_at: number
-}
-
-export async function startKeyManagementSession(
-  userId: number,
-  proof: string
-): Promise<KeyManagementSession> {
-  const response = await api.post(
-    `/api/user/${userId}/tokens/management-session`,
-    undefined,
-    { headers: { 'X-Security-Proof': proof }, singleUseAuthorization: true }
-  )
-  return requireServerSuccess(response.data).data as KeyManagementSession
-}
-
-export async function endKeyManagementSession(
-  userId: number,
-  token: string
-): Promise<void> {
-  await api.delete(`/api/user/${userId}/tokens/management-session`, {
-    headers: { 'X-Key-Management-Session': token },
-  })
-}
-
-function tokenBase(scope?: ApiKeysScope) {
-  return scope ? `/api/user/${scope.userId}/tokens` : '/api/token'
-}
-
-async function tokenWriteOptions(
-  scope: ApiKeysScope | undefined,
-  action: ApiKeyManagementAction,
-  ids: number[],
-  count?: number
-) {
-  if (!scope) return undefined
-  const uniqueIds = [...new Set(ids)].sort((a, b) => a - b)
-  const proof = await scope.authorize(action, uniqueIds, count ?? 0)
-  if (!proof) throw new DOMException('Verification cancelled', 'AbortError')
-  if (typeof proof !== 'string') {
-    return { headers: { 'X-Key-Management-Session': proof.managementSession } }
-  }
-  return { headers: { 'X-Security-Proof': proof } }
-}
-
 // ============================================================================
 // API Key Management
 // ============================================================================
 
+/**
+ * Whose keys a request works on. An administrator managing another user's
+ * keys sends requests under /api/user/:id/tokens; changes there carry the
+ * management session, full keys a verification for exactly those keys.
+ */
+export type TokenScope = {
+  ownerId: number
+  /** The management session for changes; null while read-only. */
+  managementToken: string | null
+}
+
+function tokenBase(scope?: TokenScope | null): string {
+  return scope ? `/api/user/${scope.ownerId}/tokens` : '/api/token'
+}
+
+/** Request options for a scope; none for one's own keys. */
+function tokenConfig(
+  scope?: TokenScope | null,
+  proofToken?: string
+): [] | [{ headers: Record<string, string> }] {
+  const headers: Record<string, string> = {}
+  if (scope?.managementToken) {
+    headers['X-Key-Management-Session'] = scope.managementToken
+  }
+  if (proofToken) headers['X-Security-Proof'] = proofToken
+  return Object.keys(headers).length > 0 ? [{ headers }] : []
+}
+
 // Get paginated API keys list
 export async function getApiKeys(
   params: GetApiKeysParams = {},
-  scope?: ApiKeysScope
+  scope?: TokenScope | null
 ): Promise<GetApiKeysResponse> {
   const { p = 1, size = 10 } = params
   const res = await api.get(`${tokenBase(scope)}/?p=${p}&size=${size}`)
@@ -110,7 +73,7 @@ export async function getApiKeys(
 // Search API keys by keyword or token (with pagination)
 export async function searchApiKeys(
   params: SearchApiKeysParams,
-  scope?: ApiKeysScope
+  scope?: TokenScope | null
 ): Promise<GetApiKeysResponse> {
   const { keyword = '', token = '', p, size } = params
   const queryParams = new URLSearchParams()
@@ -127,15 +90,15 @@ export async function searchApiKeys(
 // Get single API key by ID
 export async function getApiKey(
   id: number,
-  scope?: ApiKeysScope
+  scope?: TokenScope | null
 ): Promise<ApiResponse<ApiKey>> {
   const res = await api.get(`${tokenBase(scope)}/${id}`)
   return res.data
 }
 
-// Get the current user's global Auto order and the per-token selection limit.
+// Get the user's global Auto order and the per-token selection limit.
 export async function getTokenAutoGroups(
-  scope?: ApiKeysScope
+  scope?: TokenScope | null
 ): Promise<ApiResponse<TokenAutoGroupsConfig>> {
   const res = await api.get(`${tokenBase(scope)}/auto-groups`)
   return res.data
@@ -144,48 +107,45 @@ export async function getTokenAutoGroups(
 // Create a new API key
 export async function createApiKey(
   data: ApiKeyFormData,
-  scope?: ApiKeysScope
+  scope?: TokenScope | null
 ): Promise<ApiResponse<ApiKey>> {
-  const options = await tokenWriteOptions(scope, 'create', [], 1)
-  const res = options
-    ? await api.post(`${tokenBase(scope)}/`, data, options)
-    : await api.post('/api/token/', data)
+  const res = await api.post(
+    `${tokenBase(scope)}/`,
+    data,
+    ...tokenConfig(scope)
+  )
   return res.data
 }
 
 // Update an existing API key
 export async function updateApiKey(
   data: ApiKeyFormData & { id: number },
-  scope?: ApiKeysScope
+  scope?: TokenScope | null
 ): Promise<ApiResponse<ApiKey>> {
-  const options = await tokenWriteOptions(scope, 'update', [data.id])
-  const res = options
-    ? await api.put(`${tokenBase(scope)}/`, data, options)
-    : await api.put('/api/token/', data)
+  const res = await api.put(`${tokenBase(scope)}/`, data, ...tokenConfig(scope))
   return res.data
 }
 
 // Delete a single API key
 export async function deleteApiKey(
   id: number,
-  scope?: ApiKeysScope
+  scope?: TokenScope | null
 ): Promise<ApiResponse> {
-  const options = await tokenWriteOptions(scope, 'delete', [id])
-  const res = options
-    ? await api.delete(`${tokenBase(scope)}/${id}/`, options)
-    : await api.delete(`/api/token/${id}/`)
+  const path = scope ? `${tokenBase(scope)}/${id}` : `/api/token/${id}/`
+  const res = await api.delete(path, ...tokenConfig(scope))
   return res.data
 }
 
 // Batch delete multiple API keys
 export async function batchDeleteApiKeys(
   ids: number[],
-  scope?: ApiKeysScope
+  scope?: TokenScope | null
 ): Promise<ApiResponse<number>> {
-  const options = await tokenWriteOptions(scope, 'delete_batch', ids)
-  const res = options
-    ? await api.post(`${tokenBase(scope)}/batch`, { ids }, options)
-    : await api.post('/api/token/batch', { ids })
+  const res = await api.post(
+    `${tokenBase(scope)}/batch`,
+    { ids },
+    ...tokenConfig(scope)
+  )
   return res.data
 }
 
@@ -193,72 +153,64 @@ export async function batchDeleteApiKeys(
 export async function updateApiKeyStatus(
   id: number,
   status: number,
-  scope?: ApiKeysScope
+  scope?: TokenScope | null
 ): Promise<ApiResponse<ApiKey>> {
-  const options = await tokenWriteOptions(scope, 'status', [id])
-  const res = options
-    ? await api.put(
-        `${tokenBase(scope)}/?status_only=true`,
-        { id, status },
-        options
-      )
-    : await api.put('/api/token/?status_only=true', { id, status })
+  const res = await api.put(
+    `${tokenBase(scope)}/?status_only=true`,
+    { id, status },
+    ...tokenConfig(scope)
+  )
   return res.data
 }
 
 // Fetch the real (unmasked) key for a token by ID
 export async function fetchTokenKey(
   id: number,
-  scope?: ApiKeysScope
+  scope?: TokenScope | null,
+  proofToken?: string
 ): Promise<{ success: boolean; message?: string; data?: { key: string } }> {
-  const options = await tokenWriteOptions(scope, 'reveal', [id])
-  const res = options
-    ? await api.post(`${tokenBase(scope)}/${id}/key`, undefined, options)
-    : await api.post(`/api/token/${id}/key`)
+  const config = tokenConfig(scope, proofToken)
+  const res = await (config.length > 0
+    ? api.post(`${tokenBase(scope)}/${id}/key`, undefined, ...config)
+    : api.post(`${tokenBase(scope)}/${id}/key`))
   return res.data
 }
 
 // Batch fetch real (unmasked) keys for multiple tokens
 export async function fetchTokenKeysBatch(
   ids: number[],
-  scope?: ApiKeysScope
+  scope?: TokenScope | null,
+  proofToken?: string
 ): Promise<{
   success: boolean
   message?: string
   data?: { keys: Record<number, string> }
 }> {
-  const options = await tokenWriteOptions(scope, 'reveal_batch', ids)
-  const res = options
-    ? await api.post(`${tokenBase(scope)}/batch/keys`, { ids }, options)
-    : await api.post('/api/token/batch/keys', { ids })
-  return res.data
-}
-
-export async function getApiKeyModels(
-  scope?: ApiKeysScope
-): ReturnType<typeof getUserModels> {
-  if (!scope) return getUserModels()
-  const res = await api.get(`${tokenBase(scope)}/models`)
-  return res.data
-}
-
-export async function getApiKeyGroups(
-  scope?: ApiKeysScope
-): ReturnType<typeof getUserGroups> {
-  if (!scope) return getUserGroups()
-  const res = await api.get(`${tokenBase(scope)}/groups`)
-  return res.data
-}
-
-export async function createManagedApiKeys(
-  tokens: ApiKeyFormData[],
-  scope: ApiKeysScope
-): Promise<ApiResponse<{ count: number }>> {
-  const options = await tokenWriteOptions(scope, 'create', [], tokens.length)
   const res = await api.post(
-    `${tokenBase(scope)}/batch/create`,
-    { tokens },
-    options
+    `${tokenBase(scope)}/batch/keys`,
+    { ids },
+    ...tokenConfig(scope, proofToken)
   )
   return res.data
+}
+
+// Open a 30-minute management session for another user's keys.
+export async function startKeyManagement(
+  ownerId: number,
+  proofToken: string
+): Promise<ApiResponse<{ management_token: string; expires_at: number }>> {
+  const res = await api.post(
+    `/api/user/${ownerId}/tokens/management-session`,
+    undefined,
+    { headers: { 'X-Security-Proof': proofToken } }
+  )
+  return res.data
+}
+
+// End a management session early.
+export async function endKeyManagement(scope: TokenScope): Promise<void> {
+  await api.delete(
+    `${tokenBase(scope)}/management-session`,
+    ...tokenConfig(scope)
+  )
 }

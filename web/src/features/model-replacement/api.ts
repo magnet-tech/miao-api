@@ -18,114 +18,153 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 
+import { ACTION_DEFS } from './lib/constants'
 import type {
+  ActiveRun,
   ApiResponse,
-  DetectionChannelRow,
+  CandidateModel,
+  CellDetail,
+  DetectionAction,
+  DetectionChannel,
   DetectionOverview,
-  DetectionRecord,
   DetectionRun,
-  ModelCandidate,
-  ModelReplacementSettings,
-  RecordAttempts,
+  DetectionSettings,
   SettingsResponse,
+  TrialRequest,
+  TrialResult,
 } from './types'
 
-const BASE_PATH = '/api/model_replacement'
+const BASE = '/api/model_replacement'
 
-export const modelReplacementQueryKeys = {
+export const modelReplacementKeys = {
   all: ['model-replacement'] as const,
-  settings: () => [...modelReplacementQueryKeys.all, 'settings'] as const,
-  candidates: () => [...modelReplacementQueryKeys.all, 'candidates'] as const,
-  overview: () => [...modelReplacementQueryKeys.all, 'overview'] as const,
-  channels: () => [...modelReplacementQueryKeys.all, 'channels'] as const,
-  history: (filter: HistoryFilter) =>
-    [
-      ...modelReplacementQueryKeys.all,
-      'history',
-      filter.channelId ?? 'all',
-      filter.start,
-      filter.end,
-    ] as const,
-  attempts: (recordId: number) =>
-    [...modelReplacementQueryKeys.all, 'attempts', recordId] as const,
+  overview: () => [...modelReplacementKeys.all, 'overview'] as const,
+  settings: () => [...modelReplacementKeys.all, 'settings'] as const,
+  channels: () => [...modelReplacementKeys.all, 'channels'] as const,
+  candidates: () => [...modelReplacementKeys.all, 'candidates'] as const,
+  runs: (limit: number) =>
+    [...modelReplacementKeys.all, 'runs', limit] as const,
+  run: (id: string) => [...modelReplacementKeys.all, 'run', id] as const,
+  cell: (runId: string, channelId: number, model: string) =>
+    [...modelReplacementKeys.all, 'cell', runId, channelId, model] as const,
 }
 
-export async function getModelReplacementSettings() {
-  const res = await api.get<ApiResponse<SettingsResponse>>(
-    `${BASE_PATH}/settings`
-  )
+export async function getOverview(): Promise<ApiResponse<DetectionOverview>> {
+  const res = await api.get(`${BASE}/overview`)
   return res.data
 }
 
-export async function updateModelReplacementSettings(
-  settings: ModelReplacementSettings
-) {
-  const res = await api.put<ApiResponse<ModelReplacementSettings>>(
-    `${BASE_PATH}/settings`,
-    settings
+const ACTION_LISTS = [
+  'pass_actions',
+  'fail_actions',
+  'request_failure_actions',
+] as const
+
+function hasAmount(type: DetectionAction['type']): boolean {
+  return ['amount', 'integer', 'non_negative'].includes(
+    ACTION_DEFS[type].valueKind
   )
+}
+
+/** Settings as the editor holds them: every action parameter as text. */
+function editableSettings(settings: DetectionSettings): DetectionSettings {
+  const next = { ...settings }
+  for (const key of ACTION_LISTS) {
+    next[key] = settings[key].map((action) =>
+      hasAmount(action.type)
+        ? { type: action.type, value: String(action.amount ?? 0) }
+        : { type: action.type, value: action.value }
+    )
+  }
+  return next
+}
+
+/** Settings as the server stores them: priority and weight in amount. */
+function storedSettings(settings: DetectionSettings): DetectionSettings {
+  const next = { ...settings }
+  for (const key of ACTION_LISTS) {
+    next[key] = settings[key].map((action) =>
+      hasAmount(action.type)
+        ? { type: action.type, value: '', amount: Number(action.value) }
+        : { type: action.type, value: action.value.trim(), amount: 0 }
+    )
+  }
+  return next
+}
+
+function withEditableSettings(
+  response: ApiResponse<SettingsResponse>
+): ApiResponse<SettingsResponse> {
+  if (!response.data) return response
+  return {
+    ...response,
+    data: {
+      ...response.data,
+      settings: editableSettings(response.data.settings),
+    },
+  }
+}
+
+export async function getSettings(): Promise<ApiResponse<SettingsResponse>> {
+  const res = await api.get(`${BASE}/settings`)
+  return withEditableSettings(res.data)
+}
+
+export async function updateSettings(
+  settings: DetectionSettings
+): Promise<ApiResponse<SettingsResponse>> {
+  const res = await api.put(`${BASE}/settings`, storedSettings(settings))
+  return withEditableSettings(res.data)
+}
+
+export async function getChannels(): Promise<ApiResponse<DetectionChannel[]>> {
+  const res = await api.get(`${BASE}/channels`)
   return res.data
 }
 
-export async function getModelReplacementCandidates() {
-  const res = await api.get<ApiResponse<ModelCandidate[]>>(
-    `${BASE_PATH}/candidates`
-  )
+export async function getCandidates(): Promise<ApiResponse<CandidateModel[]>> {
+  const res = await api.get(`${BASE}/candidates`)
   return res.data
 }
 
-export async function getModelReplacementOverview() {
-  const res = await api.get<ApiResponse<DetectionOverview>>(
-    `${BASE_PATH}/overview`
-  )
+export async function getRuns(
+  limit: number
+): Promise<ApiResponse<{ runs: DetectionRun[]; total: number }>> {
+  const res = await api.get(`${BASE}/runs`, { params: { limit } })
   return res.data
 }
 
-export async function runModelReplacementDetection() {
-  const res = await api.post<ApiResponse<DetectionRun>>(`${BASE_PATH}/run`)
+export async function getRun(id: string): Promise<ApiResponse<DetectionRun>> {
+  const res = await api.get(`${BASE}/runs/${encodeURIComponent(id)}`)
   return res.data
 }
 
-export async function runModelReplacementChannelDetection(channelId: number) {
-  const res = await api.post<ApiResponse<DetectionRun>>(
-    `${BASE_PATH}/channels/${channelId}/run`
-  )
+export async function getCellDetail(
+  runId: string,
+  channelId: number,
+  model: string
+): Promise<ApiResponse<CellDetail>> {
+  const res = await api.get(`${BASE}/runs/${encodeURIComponent(runId)}/cell`, {
+    params: { channel_id: channelId, model },
+  })
   return res.data
 }
 
-export async function getModelReplacementChannels() {
-  const res = await api.get<ApiResponse<DetectionChannelRow[]>>(
-    `${BASE_PATH}/channels`
-  )
+export async function runDetection(): Promise<ApiResponse<ActiveRun>> {
+  const res = await api.post(`${BASE}/run`)
   return res.data
 }
 
-export type HistoryFilter = {
-  /** Null covers every channel. */
-  channelId: number | null
-  /** Unix seconds, inclusive. */
-  start: number
-  end: number
-}
-
-/** Records created in the range, oldest first, for one channel or all. */
-export async function getModelReplacementHistory(filter: HistoryFilter) {
-  const res = await api.get<ApiResponse<DetectionRecord[]>>(
-    `${BASE_PATH}/history`,
-    {
-      params: {
-        channel_id: filter.channelId ?? undefined,
-        start: filter.start,
-        end: filter.end,
-      },
-    }
-  )
+export async function retestChannel(
+  channelId: number
+): Promise<ApiResponse<ActiveRun>> {
+  const res = await api.post(`${BASE}/channels/${channelId}/run`)
   return res.data
 }
 
-export async function getModelReplacementAttempts(recordId: number) {
-  const res = await api.get<ApiResponse<RecordAttempts>>(
-    `${BASE_PATH}/records/${recordId}/attempts`
-  )
+export async function trialRun(
+  request: TrialRequest
+): Promise<ApiResponse<TrialResult>> {
+  const res = await api.post(`${BASE}/trial`, request)
   return res.data
 }

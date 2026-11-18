@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -40,15 +41,14 @@ type testResult struct {
 	context     *gin.Context
 	localErr    error
 	newAPIError *types.NewAPIError
-	// responseBody is the client-format response of a successful test; a
-	// default stream test keeps only its head.
-	responseBody []byte
-	// responseModel is an actual upstream declaration, before conversion. Tests
-	// retain the first name not exactly equal to the requested model.
-	responseModel string
+	// For a probe: the complete client-format reply, the model the upstream
+	// declared in it and the upstream model name the request was mapped to.
+	responseBody  []byte
+	declaredModel string
+	mappedModel   string
 }
 
-// unsupportedTestChannelTypes are task-style channels that cannot answer a
+// unsupportedTestChannelTypes are task channels that cannot answer a
 // synchronous test request.
 var unsupportedTestChannelTypes = []int{
 	constant.ChannelTypeMidjourney,
@@ -61,6 +61,17 @@ var unsupportedTestChannelTypes = []int{
 	constant.ChannelTypeTaskPlugin,
 }
 
+// channelTestable reports whether a channel answers a synchronous test
+// request: any channel but a task channel, or a task plugin channel whose
+// plugin has relay routes.
+func channelTestable(channel *model.Channel) bool {
+	if !lo.Contains(unsupportedTestChannelTypes, channel.Type) {
+		return true
+	}
+	plugin, bound := service.PluginOfChannel(channel)
+	return bound && plugin.Meta.HasProviderPart()
+}
+
 func normalizeChannelTestEndpoint(channel *model.Channel, endpointType string) string {
 	normalized := strings.TrimSpace(endpointType)
 	if normalized != "" {
@@ -70,6 +81,34 @@ func normalizeChannelTestEndpoint(channel *model.Channel, endpointType string) s
 		return string(constant.EndpointTypeOpenAIResponse)
 	}
 	return normalized
+}
+
+// providerTestEndpoints are the endpoints a task plugin channel test tries when
+// its plugin's relay routes do not serve the default one, in this order.
+var providerTestEndpoints = []constant.EndpointType{
+	constant.EndpointTypeOpenAI,
+	constant.EndpointTypeOpenAIResponse,
+	constant.EndpointTypeAnthropic,
+	constant.EndpointTypeGemini,
+	constant.EndpointTypeEmbeddings,
+	constant.EndpointTypeJinaRerank,
+	constant.EndpointTypeImageGeneration,
+}
+
+// providerTestEndpoint returns the endpoint a task plugin channel test uses
+// for model instead of requestPath, which meta's relay routes do not serve.
+// ok is false when they serve requestPath or none of the test endpoints.
+func providerTestEndpoint(meta jsplugin.Meta, requestPath, model string) (endpoint constant.EndpointType, ok bool) {
+	if _, served := meta.RelayRoute(requestPath, model); served {
+		return "", false
+	}
+	for _, endpoint := range providerTestEndpoints {
+		info, _ := common.GetDefaultEndpointInfo(endpoint)
+		if _, served := meta.RelayRoute(strings.ReplaceAll(info.Path, "{model}", model), model); served {
+			return endpoint, true
+		}
+	}
+	return "", false
 }
 
 func resolveChannelTestUserID(c *gin.Context) (int, error) {
@@ -90,19 +129,22 @@ func resolveChannelTestUserID(c *gin.Context) (int, error) {
 }
 
 func testChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool) testResult {
-	return runChannelTest(ctx, channel, testUserID, testModel, endpointType, isStream, nil)
+	return probeChannel(ctx, channel, testUserID, testModel, endpointType, isStream, nil)
 }
 
-// runChannelTest sends one test request through the channel's adaptor. A nil
-// probe sends the default connectivity request; a non-nil probe is sent as
-// is, and the complete client-format response body is returned with the
-// result so the caller can inspect the answer.
-func runChannelTest(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool, probe dto.Request) testResult {
+// probeChannel sends one test request through the channel's adaptor: the
+// default connectivity request when probe is nil, otherwise probe as given,
+// whose complete reply is returned for inspection.
+func probeChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool, probe dto.Request) testResult {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	tik := time.Now()
-	if lo.Contains(unsupportedTestChannelTypes, channel.Type) {
+	// A task plugin channel whose plugin has relay routes tests like an
+	// Advanced Custom channel.
+	plugin, bound := service.PluginOfChannel(channel)
+	providerChannel := bound && plugin.Meta.HasProviderPart()
+	if lo.Contains(unsupportedTestChannelTypes, channel.Type) && !providerChannel {
 		channelTypeName := constant.GetChannelTypeName(channel.Type)
 		return testResult{
 			localErr: fmt.Errorf("%s channel test is not supported", channelTypeName),
@@ -161,6 +203,15 @@ func runChannelTest(ctx context.Context, channel *model.Channel, testUserID int,
 			requestPath = "/v1/responses"
 		}
 
+	}
+	// A task plugin channel tests on an endpoint its relay routes serve for the
+	// model: the default one when they serve it, else the first they serve.
+	if providerChannel && endpointType == "" {
+		if endpoint, ok := providerTestEndpoint(plugin.Meta, requestPath, testModel); ok {
+			endpointType = string(endpoint)
+			endpointInfo, _ := common.GetDefaultEndpointInfo(endpoint)
+			requestPath = strings.ReplaceAll(endpointInfo.Path, "{model}", testModel)
+		}
 	}
 	// Gemini 原生流式通过 URL action（:streamGenerateContent）表达而非请求体字段，
 	// GeminiChatRequest.IsStream 依据请求 URL 判定，合成请求路径需与生产入口保持一致
@@ -292,7 +343,8 @@ func runChannelTest(ctx context.Context, channel *model.Channel, testUserID int,
 	// 更新请求中的模型名称
 	request.SetModelName(testModel)
 
-	apiType, _ := common.ChannelType2APIType(channel.Type)
+	// InitChannelMeta resolved the API type, the provider plugin one included.
+	apiType := info.ApiType
 	if info.RelayMode == relayconstant.RelayModeResponsesCompact &&
 		!common.SupportsResponsesCompact(channel.Type, apiType) {
 		return testResult{
@@ -501,6 +553,8 @@ func runChannelTest(ctx context.Context, channel *model.Channel, testUserID int,
 		}
 	}
 	result := w.Result()
+	// A connectivity test only needs the head of a stream; a probe needs
+	// the whole reply.
 	respBody, err := readTestResponseBody(result.Body, isStream && probe == nil)
 	if err != nil {
 		return testResult{
@@ -537,13 +591,11 @@ func runChannelTest(ctx context.Context, channel *model.Channel, testUserID int,
 		Other:            other,
 	})
 	common.SysLog(common.LogText("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
-	return testResult{
-		context:       c,
-		localErr:      nil,
-		newAPIError:   nil,
-		responseBody:  respBody,
-		responseModel: info.ChannelTestResponseModel,
+	tested := testResult{context: c, responseBody: respBody, mappedModel: info.UpstreamModelName}
+	if info.ResponseModel != nil {
+		tested.declaredModel = info.ResponseModel.ReturnedModel
 	}
+	return tested
 }
 
 func attachTestBillingRequestInput(info *relaycommon.RelayInfo, request dto.Request) error {
@@ -618,8 +670,8 @@ func coerceTestUsage(usageAny any, isStream bool, estimatePromptTokens int) (*dt
 	}
 }
 
-// readTestResponseBody reads the recorded response. limitStream keeps only
-// the head of a stream, which is enough to validate a connectivity test.
+// readTestResponseBody reads a recorded reply, only the head of it when
+// limitStream is set.
 func readTestResponseBody(body io.ReadCloser, limitStream bool) ([]byte, error) {
 	defer func() { _ = body.Close() }()
 	const maxStreamLogBytes = 8 << 10

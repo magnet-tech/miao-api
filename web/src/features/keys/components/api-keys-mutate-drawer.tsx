@@ -64,6 +64,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { RelatedPolicyLink } from '@/features/system-settings/request-policies/related-policy-link'
 import { useStatus } from '@/hooks/use-status'
+import { getUserModels, getUserGroups } from '@/lib/api'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { handleServerError } from '@/lib/handle-server-error'
 import {
@@ -77,9 +78,6 @@ import {
   updateApiKey,
   getApiKey,
   getTokenAutoGroups,
-  getApiKeyModels,
-  getApiKeyGroups,
-  createManagedApiKeys,
 } from '../api'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
@@ -111,7 +109,7 @@ export function ApiKeysMutateDrawer({
   const { t } = useTranslation()
   const isUpdate = !!currentRow
   const currentRowId = currentRow?.id
-  const { triggerRefresh, scope } = useApiKeys()
+  const { triggerRefresh, owner, tokenScope } = useApiKeys()
   const { status, loading: statusLoading } = useStatus()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
@@ -122,8 +120,8 @@ export function ApiKeysMutateDrawer({
 
   // Fetch models
   const { data: modelsData } = useQuery({
-    queryKey: scope ? ['user-models', scope.userId] : ['user-models'],
-    queryFn: async () => requireServerSuccess(await getApiKeyModels(scope)),
+    queryKey: ['user-models', owner?.id ?? 'self'],
+    queryFn: async () => requireServerSuccess(await getUserModels(owner?.id)),
     enabled: open,
     staleTime: 0,
   })
@@ -134,8 +132,8 @@ export function ApiKeysMutateDrawer({
     isFetched: groupsFetched,
     isFetching: groupsFetching,
   } = useQuery({
-    queryKey: scope ? ['user-groups', scope.userId] : ['user-groups'],
-    queryFn: async () => requireServerSuccess(await getApiKeyGroups(scope)),
+    queryKey: ['user-groups', owner?.id ?? 'self'],
+    queryFn: async () => requireServerSuccess(await getUserGroups(owner?.id)),
     enabled: open,
     staleTime: 0,
   })
@@ -145,11 +143,9 @@ export function ApiKeysMutateDrawer({
     isFetched: apiKeyFetched,
     isFetching: apiKeyFetching,
   } = useQuery({
-    queryKey: scope
-      ? ['api-key', scope.userId, currentRowId]
-      : ['api-key', currentRowId],
+    queryKey: ['api-key', owner?.id ?? 'self', currentRowId],
     queryFn: async () =>
-      requireServerSuccess(await getApiKey(currentRowId ?? 0, scope)),
+      requireServerSuccess(await getApiKey(currentRowId ?? 0, tokenScope)),
     enabled: open && isUpdate && currentRowId !== undefined,
     staleTime: 0,
   })
@@ -159,10 +155,9 @@ export function ApiKeysMutateDrawer({
     isFetched: autoGroupsFetched,
     isFetching: autoGroupsFetching,
   } = useQuery({
-    queryKey: scope
-      ? ['token-auto-groups', scope.userId]
-      : ['token-auto-groups'],
-    queryFn: async () => requireServerSuccess(await getTokenAutoGroups(scope)),
+    queryKey: ['token-auto-groups', owner?.id ?? 'self'],
+    queryFn: async () =>
+      requireServerSuccess(await getTokenAutoGroups(tokenScope)),
     enabled: open,
     staleTime: 0,
   })
@@ -300,11 +295,8 @@ export function ApiKeysMutateDrawer({
 
       if (isUpdate && currentRow) {
         const result = await updateApiKey(
-          {
-            ...basePayload,
-            id: currentRow.id,
-          },
-          scope
+          { ...basePayload, id: currentRow.id },
+          tokenScope
         )
         if (result.success) {
           toast.success(t(SUCCESS_MESSAGES.API_KEY_UPDATED))
@@ -317,26 +309,23 @@ export function ApiKeysMutateDrawer({
         // Create mode - handle batch creation
         const count = data.tokenCount || 1
         let successCount = 0
-        const tokens = Array.from({ length: count }, (_, i) => ({
-          ...basePayload,
-          name:
-            i === 0 && data.name
-              ? data.name
-              : `${data.name || 'default'}-${Math.random().toString(36).slice(2, 8)}`,
-        }))
-        if (scope) {
-          const result = await createManagedApiKeys(tokens, scope)
-          if (result.success) successCount = result.data?.count ?? 0
-          else handleServerError(result, t(ERROR_MESSAGES.CREATE_FAILED))
-        } else {
-          for (const token of tokens) {
-            const result = await createApiKey(token)
-            if (result.success) {
-              successCount++
-            } else {
-              handleServerError(result, t(ERROR_MESSAGES.CREATE_FAILED))
-              break
-            }
+
+        for (let i = 0; i < count; i++) {
+          const result = await createApiKey(
+            {
+              ...basePayload,
+              name:
+                i === 0 && data.name
+                  ? data.name
+                  : `${data.name || 'default'}-${Math.random().toString(36).slice(2, 8)}`,
+            },
+            tokenScope
+          )
+          if (result.success) {
+            successCount++
+          } else {
+            handleServerError(result, t(ERROR_MESSAGES.CREATE_FAILED))
+            break
           }
         }
 

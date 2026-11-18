@@ -16,22 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export type ApiResponse<T = unknown> = {
-  success: boolean
-  message?: string
-  data?: T
-}
+export type Verdict = 'passed' | 'replaced' | 'failed' | 'not_tested'
+
+export type ChannelStatus = 'enabled' | 'auto_disabled' | 'manual_disabled'
 
 export type MatchMode = 'exact' | 'contains' | 'regex'
 
-export type DetectedModelSetting = {
-  model: string
-  question: string
-  expected_answer: string
-  match_mode: MatchMode
-  retry_times: number
-  excluded_channel_ids: number[]
-}
+export type ResponseModelCheck = 'off' | 'exact' | 'loose'
 
 export type ActionType =
   | 'add_group'
@@ -42,148 +33,216 @@ export type ActionType =
   | 'increase_weight'
   | 'decrease_weight'
   | 'set_weight'
-  | 'auto_disable'
-  | 'manual_disable'
   | 'set_tag'
   | 'remove_tag'
+  | 'auto_disable'
+  | 'manual_disable'
 
-/** One step of an action list. `value` is a group or tag; `amount` a number. */
-export type DetectionAction = {
+/**
+ * A channel action. In the editor `value` holds every parameter as text;
+ * the server keeps priority and weight numbers in `amount`, which api.ts
+ * converts. Applied actions from the server carry `amount` as stored.
+ */
+export interface DetectionAction {
   type: ActionType
   value: string
-  amount: number
+  amount?: number
 }
 
-export type AppliedAction = DetectionAction & {
+export interface AppliedAction extends DetectionAction {
   changed: boolean
 }
 
-/**
- * Interval override for runs that finish between `start` (inclusive) and
- * `end` (exclusive), HH:MM in server time. An end earlier than the start
- * runs past midnight.
- */
-export type IntervalWindow = {
+export interface IntervalWindow {
   start: string
   end: string
   interval_minutes: number
 }
 
-export type ModelReplacementSettings = {
+export interface MonitoredModel {
+  model: string
+  question: string
+  expected_answer: string
+  match_mode: MatchMode
+  response_model_check: ResponseModelCheck
+  retry_times: number
+  excluded_channel_ids: number[]
+}
+
+export interface DetectionSettings {
   enabled: boolean
-  /** Default interval, used outside every window. */
   interval_minutes: number
   interval_windows: IntervalWindow[]
+  retention_days: number
   rounds: number
   concurrency: number
   timeout_seconds: number
   threshold: number
+  models: MonitoredModel[]
   pass_actions: DetectionAction[]
   fail_actions: DetectionAction[]
   request_failure_actions: DetectionAction[]
-  models: DetectedModelSetting[]
 }
 
-export type DetectionChannel = {
-  id: number
-  name: string
-  type: number
-  status: number
-  groups: string[]
-}
+export type ActionListKey =
+  | 'pass_actions'
+  | 'fail_actions'
+  | 'request_failure_actions'
 
-export type ModelCandidate = {
-  model: string
-  channels: DetectionChannel[]
-}
-
-export type Verdict = 'passed' | 'replaced' | 'failed'
-
-export type ModelStat = {
-  model: string
-  total: number
-  matched: number
-  mismatched: number
-  failed: number
-  match_percent: number
-  mismatch_percent: number
-  verdict: Verdict | ''
-}
-
-export type DetectionRecord = {
-  id: number
-  run_id: string
-  channel_id: number
-  channel_name: string
-  verdict: Verdict
-  match_percent: number
-  actions: AppliedAction[]
-  error_message: string
-  avg_latency_ms: number
-  started_at: number
-  finished_at: number
-  created_at: number
-  models: ModelStat[]
-}
-
-export type DetectionAttempt = {
-  id: number
-  record_id: number
-  model: string
-  round: number
-  tries: number
-  success: boolean
-  matched: boolean
-  answer: string
-  error_message: string
-  latency_ms: number
-  tested_at: number
-}
-
-export type DetectionRunSummary = {
-  started_at: number
-  finished_at: number
-  manual: boolean
-  channels: number
-  passed: number
-  replaced: number
-  failed: number
-}
-
-export type DetectionRun = {
-  task_id: string
-  status: 'pending' | 'running' | 'succeeded' | 'failed'
-  error: string
-  created_at: number
-  updated_at: number
-  state?: { processed?: number; total?: number; progress?: number } | null
-  result?: DetectionRunSummary | null
-}
-
-export type SettingsResponse = {
-  settings: ModelReplacementSettings
-  /** Time zone the interval windows are evaluated in, e.g. "UTC+08:00 (CST)". */
+export interface SettingsResponse {
+  settings: DetectionSettings
   server_time_zone: string
 }
 
-export type DetectionOverview = {
+export interface ChannelInfo {
+  id: number
+  name: string
+  status: ChannelStatus
+  groups: string[]
+  priority: number
+  weight: number
+  tag: string
+}
+
+export interface RunSummary {
+  id: string
+  trigger: 'schedule' | 'manual' | 'retest'
+  channel_id: number | null
+  started_at: number
+  finished_at: number
+  duration_ms: number
+  counts: { passed: number; replaced: number; failed: number }
+}
+
+export interface RunCell {
+  channel_id: number
+  model: string
+  verdict: Verdict
+  match_percent: number
+  response_model_mismatch: boolean
+}
+
+export interface ChannelResult {
+  channel_id: number
+  verdict: Verdict
+  actions: AppliedAction[]
+  skipped_actions: boolean
+}
+
+export interface DetectionRun extends RunSummary {
+  cells: RunCell[]
+  channel_results: ChannelResult[]
+}
+
+export interface ActiveRun {
+  id: string
+  trigger: RunSummary['trigger']
+  channel_id: number | null
+  started_at: number
+  done: number
+  total: number
+}
+
+export interface DetectionOverview {
   enabled: boolean
   interval_minutes: number
-  /** Interval that applies after the latest run, from its finish time. */
-  next_interval_minutes: number
+  server_time_zone: string
+  next_run_at: number | null
+  last_run: RunSummary | null
+  active_run: ActiveRun | null
+  counts: {
+    healthy: number
+    suspected: number
+    failed: number
+    not_tested: number
+    in_scope: number
+  }
   rounds: number
   models: string[]
-  last_run: DetectionRun | null
-  active_run: DetectionRun | null
-  next_run_at: number | null
 }
 
-export type DetectionChannelRow = DetectionChannel & {
+export interface LatestResult {
+  run_id: string
+  started_at: number
+  finished_at: number
+  trigger: RunSummary['trigger']
+  verdict: Verdict
+  avg_latency_ms: number
+  cells: Omit<RunCell, 'channel_id'>[]
+  actions: AppliedAction[]
+  skipped_actions: boolean
+}
+
+export interface DetectionChannel extends ChannelInfo {
   in_scope: boolean
-  latest: DetectionRecord | null
+  monitored_models: string[]
+  latest: LatestResult | null
 }
 
-export type RecordAttempts = {
-  record: DetectionRecord
-  attempts: DetectionAttempt[]
+export interface CandidateModel {
+  model: string
+  channels: ChannelInfo[]
+}
+
+export type ResponseModelNote =
+  | 'not_checked'
+  | 'exact'
+  | 'loose_accepted'
+  | 'mismatch'
+
+export interface Attempt {
+  round: number
+  answer: string
+  answer_matched: boolean
+  response_model: string
+  response_model_ok: boolean
+  response_model_note: ResponseModelNote
+  matched: boolean
+  latency_ms: number
+  tries: number
+  error: string
+}
+
+export interface CellDetail {
+  run: RunSummary
+  channel: ChannelInfo
+  model: string
+  verdict: Verdict
+  match_percent: number
+  channel_verdict: Verdict
+  question: string
+  expected_answer: string
+  match_mode: MatchMode
+  response_model_check: ResponseModelCheck
+  attempts: Attempt[]
+  actions: AppliedAction[]
+  skipped_actions: boolean
+}
+
+export interface TrialRequest {
+  channel_id: number
+  model: string
+  question: string
+  expected_answer: string
+  match_mode: MatchMode
+  response_model_check: ResponseModelCheck
+}
+
+export interface TrialResult {
+  channel: ChannelInfo
+  model: string
+  answer: string
+  answer_matched: boolean
+  response_model: string
+  response_model_ok: boolean
+  response_model_note: ResponseModelNote
+  latency_ms: number
+  error: string
+  verdict: Verdict
+}
+
+export interface ApiResponse<T = unknown> {
+  success: boolean
+  message?: string
+  data?: T
 }

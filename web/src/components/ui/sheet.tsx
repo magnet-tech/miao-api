@@ -45,7 +45,8 @@ function SheetPortal({ ...props }: SheetPrimitive.Portal.Props) {
 function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
   return (
     <SheetPrimitive.Backdrop
-      // Base UI omits nested backdrops unless requested explicitly.
+      // Base UI skips backdrops of nested popups; render them so a dialog
+      // opened from a drawer shields the drawer underneath.
       forceRender
       data-slot='sheet-overlay'
       className={cn(

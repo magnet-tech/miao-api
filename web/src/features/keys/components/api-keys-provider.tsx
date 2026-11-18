@@ -25,22 +25,19 @@ import {
 } from '@/features/auth/secure-verification'
 import useDialogState from '@/hooks/use-dialog'
 import { handleServerError } from '@/lib/handle-server-error'
-import { useAuthStore } from '@/stores/auth-store'
+import { AuthOperationError } from '@/lib/secure-verification'
 
 import {
+  endKeyManagement,
   fetchTokenKey,
   fetchTokenKeysBatch,
-  startKeyManagementSession,
-  endKeyManagementSession,
-  type KeyManagementSession,
-  type ApiKeysScope,
+  startKeyManagement,
+  type TokenScope,
 } from '../api'
 import { ERROR_MESSAGES } from '../constants'
 import type { ApiKey, ApiKeysDialogType } from '../types'
 
 type ApiKeysContextType = {
-  scope?: ApiKeysScope
-  verificationActive: boolean
   open: ApiKeysDialogType | null
   setOpen: (str: ApiKeysDialogType | null) => void
   currentRow: ApiKey | null
@@ -55,99 +52,40 @@ type ApiKeysContextType = {
   loadingKeys: Record<number, boolean>
   copiedKeyId: number | null
   markKeyCopied: (id: number) => void
+  /** The user whose keys an administrator manages; null for one's own. */
+  owner: KeyOwner | null
+  /** Passed to every keys API call. */
+  tokenScope: TokenScope | null
+  /** False while managing another user's keys without a session. */
+  canChange: boolean
+  /** When the management session ends, in Unix seconds. */
+  managementExpiresAt: number | null
+  startManagement: () => Promise<void>
+  endManagement: () => void
 }
+
+export type KeyOwner = { id: number; username: string }
 
 const ApiKeysContext = React.createContext<ApiKeysContextType | null>(null)
 
-type ApiKeysProviderProps = {
+export function ApiKeysProvider(props: {
   children: React.ReactNode
-  owner?: { id: number; username: string }
-}
-
-export function ApiKeysProvider(props: ApiKeysProviderProps) {
-  const userId = useAuthStore((state) => state.auth.user?.id)
-  const sessionId = useAuthStore((state) => state.auth.session?.sid)
-  return (
-    <ApiKeysSession
-      key={`${props.owner?.id ?? 'self'}:${userId ?? ''}:${sessionId ?? ''}`}
-      {...props}
-    />
-  )
-}
-
-function ApiKeysSession(props: ApiKeysProviderProps) {
+  owner?: KeyOwner | null
+}) {
   const { t } = useTranslation()
+  const owner = props.owner ?? null
   const verification = useSecureVerification()
-  const requestVerification = verification.requestVerification
-  const ownerId = props.owner?.id
-  const ownerName = props.owner?.username
-  const managementSession = useRef<KeyManagementSession | null>(null)
-  const pendingAuthorization = useRef<Promise<{
-    managementSession: string
-  } | null> | null>(null)
-  const alive = useRef(false)
-  useEffect(() => {
-    alive.current = true
-    return () => {
-      alive.current = false
-      const grant = managementSession.current
-      managementSession.current = null
-      if (ownerId !== undefined && grant) {
-        void endKeyManagementSession(ownerId, grant.management_token).catch(
-          () => {}
-        )
-      }
-    }
-  }, [ownerId])
-  const scope = useMemo<ApiKeysScope | undefined>(() => {
-    if (ownerId === undefined) return undefined
-    return {
-      userId: ownerId,
-      authorize: async () => {
-        if (!alive.current) return null
-        const grant = managementSession.current
-        if (grant && grant.expires_at > Date.now() / 1000) {
-          return { managementSession: grant.management_token }
-        }
-        if (pendingAuthorization.current) return pendingAuthorization.current
-        const pending = (async () => {
-          const proof = await requestVerification({
-            scope: 'admin.user.tokens',
-            context: {
-              user_id: ownerId,
-              action: 'manage',
-              token_ids: [],
-              count: 0,
-            },
-            title: t('Verify API key management'),
-            description: t(
-              'Confirm your identity before managing API keys for {{username}}.',
-              { username: ownerName }
-            ),
-          })
-          if (!proof || !alive.current) return null
-          const next = await startKeyManagementSession(
-            ownerId,
-            proof.proof_token
-          )
-          if (!alive.current) {
-            await endKeyManagementSession(ownerId, next.management_token).catch(
-              () => {}
-            )
-            return null
-          }
-          managementSession.current = next
-          return { managementSession: next.management_token }
-        })()
-        pendingAuthorization.current = pending
-        try {
-          return await pending
-        } finally {
-          pendingAuthorization.current = null
-        }
-      },
-    }
-  }, [ownerId, ownerName, requestVerification, t])
+  const [management, setManagement] = useState<{
+    token: string
+    expiresAt: number
+  } | null>(null)
+  const tokenScope = useMemo<TokenScope | null>(
+    () =>
+      owner
+        ? { ownerId: owner.id, managementToken: management?.token ?? null }
+        : null,
+    [owner, management]
+  )
   const [open, setOpen] = useDialogState<ApiKeysDialogType>(null)
   const [currentRow, setCurrentRow] = useState<ApiKey | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
@@ -156,17 +94,12 @@ function ApiKeysSession(props: ApiKeysProviderProps) {
   const [resolvedKeys, setResolvedKeys] = useState<Record<number, string>>({})
   const [loadingKeys, setLoadingKeys] = useState<Record<number, boolean>>({})
   const pendingRequests = useRef<Record<number, Promise<string | null>>>({})
-  const active = useRef(true)
 
   const [copiedKeyId, setCopiedKeyId] = useState<number | null>(null)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   useEffect(() => {
-    active.current = true
-    return () => {
-      active.current = false
-      clearTimeout(copiedTimerRef.current)
-    }
+    return () => clearTimeout(copiedTimerRef.current)
   }, [])
 
   const markKeyCopied = useCallback((id: number) => {
@@ -176,10 +109,90 @@ function ApiKeysSession(props: ApiKeysProviderProps) {
   }, [])
 
   const triggerRefresh = useCallback(() => {
-    setResolvedKeys({})
-    setResolvedKey('')
     setRefreshTrigger((prev) => prev + 1)
   }, [])
+
+  const { requestVerification } = verification
+  /**
+   * Another user's full keys need a verification for exactly those keys each
+   * time: undefined for one's own keys, null when the operator cancels.
+   */
+  const revealProof = useCallback(
+    async (ids: number[]): Promise<string | undefined | null> => {
+      if (!owner) return undefined
+      try {
+        const proof = await requestVerification({
+          scope: 'admin.user.tokens',
+          context: { user_id: owner.id, action: 'reveal', token_ids: ids },
+          title: t('Verify to view full API keys'),
+          description: t(
+            'Confirm your identity to view the full API keys of {{username}}.',
+            { username: owner.username }
+          ),
+        })
+        return proof?.proof_token ?? null
+      } catch (error) {
+        handleServerError(
+          AuthOperationError.from(error),
+          t('Verification failed')
+        )
+        return null
+      }
+    },
+    [owner, requestVerification, t]
+  )
+
+  const startManagement = useCallback(async () => {
+    if (!owner) return
+    try {
+      const proof = await requestVerification({
+        scope: 'admin.user.tokens',
+        context: { user_id: owner.id, action: 'manage' },
+        title: t("Verify to manage this user's API keys"),
+        description: t(
+          'After verifying, you can change the API keys of {{username}} for 30 minutes without being asked again.',
+          { username: owner.username }
+        ),
+      })
+      if (!proof) return
+      const result = await startKeyManagement(owner.id, proof.proof_token)
+      if (!result.success || !result.data) {
+        handleServerError(result, t('Verification failed'))
+        return
+      }
+      setManagement({
+        token: result.data.management_token,
+        expiresAt: result.data.expires_at,
+      })
+    } catch (error) {
+      handleServerError(
+        AuthOperationError.from(error),
+        t('Verification failed')
+      )
+    }
+  }, [owner, requestVerification, t])
+
+  // The session ends when its time is up, when the operator ends it and when
+  // the page is left.
+  const endManagement = useCallback(() => {
+    setManagement(null)
+    if (tokenScope?.managementToken) {
+      void endKeyManagement(tokenScope).catch(() => undefined)
+    }
+  }, [tokenScope])
+
+  const endOnLeave = useRef(endManagement)
+  useEffect(() => {
+    endOnLeave.current = endManagement
+  }, [endManagement])
+  useEffect(() => () => endOnLeave.current(), [])
+
+  useEffect(() => {
+    if (!management) return
+    const remaining = management.expiresAt * 1000 - Date.now()
+    const timer = setTimeout(() => setManagement(null), Math.max(remaining, 0))
+    return () => clearTimeout(timer)
+  }, [management])
 
   const resolveRealKey = useCallback(
     async (id: number): Promise<string | null> => {
@@ -189,8 +202,9 @@ function ApiKeysSession(props: ApiKeysProviderProps) {
       const request = (async () => {
         setLoadingKeys((prev) => ({ ...prev, [id]: true }))
         try {
-          const res = await fetchTokenKey(id, scope)
-          if (!active.current) return null
+          const proof = await revealProof([id])
+          if (proof === null) return null
+          const res = await fetchTokenKey(id, tokenScope, proof)
           if (res.success && res.data?.key) {
             const fullKey = `sk-${res.data.key}`
             setResolvedKeys((prev) => ({ ...prev, [id]: fullKey }))
@@ -214,7 +228,7 @@ function ApiKeysSession(props: ApiKeysProviderProps) {
       pendingRequests.current[id] = request
       return request
     },
-    [resolvedKeys, scope, t]
+    [resolvedKeys, revealProof, t, tokenScope]
   )
 
   const resolveRealKeysBatch = useCallback(
@@ -231,8 +245,9 @@ function ApiKeysSession(props: ApiKeysProviderProps) {
       }
 
       try {
-        const res = await fetchTokenKeysBatch(uncachedIds, scope)
-        if (!active.current) return {}
+        const proof = await revealProof(uncachedIds)
+        if (proof === null) return {}
+        const res = await fetchTokenKeysBatch(uncachedIds, tokenScope, proof)
         if (res.success && res.data?.keys) {
           const newKeys: Record<number, string> = {}
           for (const [idStr, key] of Object.entries(res.data.keys)) {
@@ -261,14 +276,12 @@ function ApiKeysSession(props: ApiKeysProviderProps) {
         }
       }
     },
-    [resolvedKeys, scope, t]
+    [resolvedKeys, revealProof, t, tokenScope]
   )
 
   return (
     <ApiKeysContext
       value={{
-        scope,
-        verificationActive: verification.isActive,
         open,
         setOpen,
         currentRow,
@@ -283,6 +296,12 @@ function ApiKeysSession(props: ApiKeysProviderProps) {
         loadingKeys,
         copiedKeyId,
         markKeyCopied,
+        owner,
+        tokenScope,
+        canChange: !owner || management !== null,
+        managementExpiresAt: management?.expiresAt ?? null,
+        startManagement,
+        endManagement,
       }}
     >
       {props.children}

@@ -40,6 +40,9 @@ type ErrorCode string
 const (
 	ErrorCodeInvalidRequest         ErrorCode = "invalid_request"
 	ErrorCodeSensitiveWordsDetected ErrorCode = "sensitive_words_detected"
+	ErrorCodeRequestRejected        ErrorCode = "request_rejected"
+	ErrorCodeRequestPluginFailed    ErrorCode = "request_plugin_failed"
+	ErrorCodeResponseRejected       ErrorCode = "response_rejected"
 	ErrorCodeViolationFeeGrokCSAM   ErrorCode = "violation_fee.grok.csam"
 
 	// new api error
@@ -86,7 +89,7 @@ const (
 	ErrorCodeInsufficientUserQuota      ErrorCode = "insufficient_user_quota"
 	ErrorCodePreConsumeTokenQuotaFailed ErrorCode = "pre_consume_token_quota_failed"
 
-	// user limit error
+	// per-user limits set by an administrator
 	ErrorCodeUserUsageLimitReached       ErrorCode = "user_usage_limit_reached"
 	ErrorCodeUserConcurrencyLimitReached ErrorCode = "user_concurrency_limit_reached"
 )

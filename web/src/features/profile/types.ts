@@ -47,8 +47,6 @@ export interface UserProfile {
   role: number
   /** Email address */
   email?: string
-  email_verified?: boolean
-  allow_without_email?: boolean
   /** User group */
   group: string
   /** Current quota balance */

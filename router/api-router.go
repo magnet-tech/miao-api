@@ -51,6 +51,11 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.POST("/oauth/email/bind/start", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("account-security"), middleware.EmailVerificationRateLimit(), middleware.DisableCache(), controller.EmailBindStart)
 		apiRouter.POST("/oauth/email/bind/resend", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("account-security"), middleware.EmailVerificationRateLimit(), middleware.DisableCache(), controller.EmailBindResend)
 		apiRouter.POST("/oauth/email/bind", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("account-security"), middleware.DisableCache(), controller.EmailBind)
+		// An administrator-required email verification: the current address, or a
+		// first address for accounts without any step-up method.
+		apiRouter.POST("/user/self/email/verify/start", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("account-security"), middleware.EmailVerificationRateLimit(), middleware.DisableCache(), controller.EmailVerificationStart)
+		apiRouter.POST("/user/self/email/verify/resend", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("account-security"), middleware.EmailVerificationRateLimit(), middleware.DisableCache(), controller.EmailVerificationResend)
+		apiRouter.POST("/user/self/email/verify", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("account-security"), middleware.DisableCache(), controller.EmailVerificationFinish)
 		// WeChat uses its existing authorization-code service.
 		apiRouter.GET("/oauth/wechat", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.WeChatAuth)
 		apiRouter.POST("/oauth/wechat/bind", middleware.UserAuth(), middleware.CriticalRateLimit(), controller.WeChatBind)
@@ -97,11 +102,12 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.DELETE("/sessions/:sid", middleware.DisableCache(), controller.DeleteLoginSession)
 				selfRoute.POST("/sessions/revoke-others", middleware.DisableCache(), controller.RevokeOtherLoginSessions)
 				selfRoute.GET("/self/groups", controller.GetUserGroups)
-				selfRoute.GET("/self/limits", controller.GetSelfLimits)
 				selfRoute.GET("/self", controller.GetSelf)
 				selfRoute.GET("/models", controller.GetUserModels)
 				selfRoute.PUT("/self", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.UpdateSelf)
 				selfRoute.DELETE("/self", middleware.DisableCache(), controller.DeleteSelf)
+				selfRoute.POST("/self/email/test", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("admin-email"), controller.SendSelfTestEmail)
+				selfRoute.GET("/self/limits", controller.GetSelfLimits)
 				accessTokenRoute := selfRoute.Group("/access_tokens")
 				accessTokenRoute.Use(middleware.DisableCache())
 				{
@@ -162,29 +168,6 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.DELETE("/:id/oauth/bindings/:provider_id", controller.UnbindCustomOAuthByAdmin)
 				adminRoute.DELETE("/:id/bindings/:binding_type", controller.AdminClearUserBinding)
 				adminRoute.GET("/:id", controller.GetUser)
-				adminRoute.GET("/:id/limits", controller.GetUserLimits)
-				adminRoute.GET("/:id/limits/models", controller.GetUserLimitModels)
-				adminRoute.PUT("/:id/limits", controller.UpdateUserLimits)
-				adminRoute.POST("/:id/limits/reset", controller.ResetUserLimitWindows)
-				adminRoute.POST("/:id/email", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("admin-email"), middleware.DisableCache(), controller.SendUserEmail)
-				userTokens := adminRoute.Group("/:id/tokens", middleware.DisableCache(), middleware.TokenOperationAudit(), controller.AuthorizeUserTokenManagement)
-				{
-					userTokens.GET("/", controller.GetAllTokens)
-					userTokens.GET("/search", middleware.SearchRateLimit(), controller.SearchTokens)
-					userTokens.GET("/auto-groups", controller.GetTokenAutoGroups)
-					userTokens.POST("/management-session", middleware.CriticalRateLimit(), controller.StartUserTokenManagement)
-					userTokens.DELETE("/management-session", controller.EndUserTokenManagement)
-					userTokens.GET("/models", controller.GetUserModels)
-					userTokens.GET("/groups", controller.GetUserGroups)
-					userTokens.GET("/:token_id", controller.GetToken)
-					userTokens.POST("/:token_id/key", middleware.CriticalRateLimit(), controller.GetTokenKey)
-					userTokens.POST("/", middleware.CriticalRateLimit(), controller.AddToken)
-					userTokens.PUT("/", middleware.CriticalRateLimit(), controller.UpdateToken)
-					userTokens.DELETE("/:token_id", middleware.CriticalRateLimit(), controller.DeleteToken)
-					userTokens.POST("/batch", middleware.CriticalRateLimit(), controller.DeleteTokenBatch)
-					userTokens.POST("/batch/keys", middleware.CriticalRateLimit(), controller.GetTokenKeysBatch)
-					userTokens.POST("/batch/create", middleware.CriticalRateLimit(), controller.AddUserTokensBatch)
-				}
 				adminRoute.POST("/", controller.CreateUser)
 				adminRoute.POST("/manage", controller.ManageUser)
 				adminRoute.PUT("/", controller.UpdateUser)
@@ -194,6 +177,39 @@ func SetApiRouter(router *gin.Engine) {
 				// Admin 2FA routes
 				adminRoute.GET("/2fa/stats", controller.Admin2FAStats)
 				adminRoute.DELETE("/:id/2fa", controller.AdminDisable2FA)
+
+				// Emails to users and account notices.
+				adminRoute.POST("/:id/email", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("admin-email"), middleware.DisableCache(), controller.SendUserEmail)
+				adminRoute.POST("/:id/notice", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("admin-email"), middleware.DisableCache(), controller.SendAccountNotice)
+				adminRoute.GET("/:id/email/history", middleware.DisableCache(), controller.GetUserEmailHistory)
+
+				// Usage limits and the concurrency cap of a user.
+				adminRoute.GET("/:id/limits", middleware.DisableCache(), controller.GetUserLimits)
+				adminRoute.PUT("/:id/limits", middleware.DisableCache(), controller.UpdateUserLimits)
+				adminRoute.POST("/:id/limits/reset", middleware.DisableCache(), controller.ResetUserLimitWindows)
+				adminRoute.GET("/:id/limits/models", middleware.DisableCache(), controller.GetUserLimitModels)
+
+				// API keys of a user the operator manages.
+				userTokens := adminRoute.Group("/:id/tokens", middleware.DisableCache(), middleware.TokenOperationAudit())
+				{
+					read := controller.ManagedTokenOwner(authz.UserTokenRead)
+					manage := controller.ManagedTokenOwner(authz.UserTokenManage)
+					reveal := controller.ManagedTokenOwner(authz.UserTokenSecretView)
+					userTokens.GET("/", read, controller.GetAllTokens)
+					userTokens.GET("/search", middleware.SearchRateLimit(), read, controller.SearchTokens)
+					userTokens.GET("/auto-groups", read, controller.GetTokenAutoGroups)
+					userTokens.GET("/models", read, controller.GetUserModels)
+					userTokens.GET("/groups", read, controller.GetUserGroups)
+					userTokens.GET("/:token_id", read, controller.GetToken)
+					userTokens.POST("/management-session", middleware.CriticalRateLimit(), manage, controller.StartManagedTokenSession)
+					userTokens.DELETE("/management-session", controller.EndManagedTokenSession)
+					userTokens.POST("/", manage, controller.RequireManagedTokenSession, controller.AddToken)
+					userTokens.PUT("/", manage, controller.RequireManagedTokenSession, controller.UpdateToken)
+					userTokens.DELETE("/:token_id", manage, controller.RequireManagedTokenSession, controller.DeleteToken)
+					userTokens.POST("/batch", manage, controller.RequireManagedTokenSession, controller.DeleteTokenBatch)
+					userTokens.POST("/:token_id/key", middleware.CriticalRateLimit(), reveal, controller.RevealManagedTokenKey)
+					userTokens.POST("/batch/keys", middleware.CriticalRateLimit(), reveal, controller.RevealManagedTokenKeys)
+				}
 			}
 		}
 
@@ -233,6 +249,30 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/subscription/epay/notify", controller.SubscriptionEpayNotify)
 		apiRouter.GET("/subscription/epay/return", controller.SubscriptionEpayReturn)
 		apiRouter.POST("/subscription/epay/return", anonymousRequestBodyLimit, controller.SubscriptionEpayReturn)
+		apiRouter.GET("/email_templates", middleware.AdminAuth(), middleware.DisableCache(), controller.GetEmailTemplates)
+		apiRouter.PUT("/email_templates", middleware.RootAuth(), middleware.DisableCache(), controller.UpdateEmailTemplates)
+		apiRouter.GET("/usage_limits/users", middleware.AdminAuth(), middleware.DisableCache(), controller.GetUsageLimitOverview)
+
+		// Model replacement detection.
+		detectionRoute := apiRouter.Group("/model_replacement")
+		detectionRoute.Use(middleware.AdminAuth(), middleware.DisableCache())
+		{
+			read := middleware.RequirePermission(authz.ModelReplacementRead)
+			operate := middleware.RequirePermission(authz.ModelReplacementOperate)
+			configure := middleware.RequirePermission(authz.ModelReplacementConfigure)
+			detectionRoute.GET("/overview", read, controller.GetDetectionOverview)
+			detectionRoute.GET("/settings", read, controller.GetDetectionSettings)
+			detectionRoute.PUT("/settings", configure, controller.UpdateDetectionSettings)
+			detectionRoute.GET("/candidates", read, controller.GetDetectionCandidates)
+			detectionRoute.GET("/channels", read, controller.GetDetectionChannels)
+			detectionRoute.GET("/runs", read, controller.ListDetectionRuns)
+			detectionRoute.GET("/runs/:id", read, controller.GetDetectionRun)
+			detectionRoute.GET("/runs/:id/cell", read, controller.GetDetectionCell)
+			detectionRoute.POST("/run", operate, controller.StartDetectionRun)
+			detectionRoute.POST("/channels/:id/run", operate, controller.RetestDetectionChannel)
+			detectionRoute.POST("/trial", middleware.CriticalRateLimit(), operate, controller.TrialDetection)
+		}
+
 		optionRoute := apiRouter.Group("/option")
 		optionRoute.Use(middleware.RootAuth())
 		{
@@ -302,6 +342,15 @@ func SetApiRouter(router *gin.Engine) {
 			taskPluginRoute.DELETE("/:key/versions/:version", controller.DeleteTaskPluginVersion)
 		}
 		handlePermissionRoute(apiRouter.Group("", middleware.AdminAuth()), http.MethodGet, "/task_plugin_options", authz.TaskPluginBind, controller.GetTaskPluginOptions)
+		// Channel editors read the instances to bind them; changing them is
+		// plugin management, as installing a plugin is.
+		handlePermissionRoute(apiRouter.Group("", middleware.AdminAuth()), http.MethodGet, "/request_plugin/instances", authz.TaskPluginBind, controller.GetRequestPluginInstances)
+		requestPluginRoute := apiRouter.Group("/request_plugin")
+		requestPluginRoute.Use(middleware.RootAuth())
+		{
+			requestPluginRoute.PUT("/instances", controller.UpdateRequestPluginInstances)
+			requestPluginRoute.POST("/dry_run", controller.DryRunRequestPlugins)
+		}
 		registerChannelRoutes(apiRouter)
 		registerAuthzRoutes(apiRouter)
 		tokenRoute := apiRouter.Group("/token")
@@ -364,17 +413,11 @@ func SetApiRouter(router *gin.Engine) {
 			systemTaskRoute.GET("/current", controller.GetCurrentSystemTask)
 			systemTaskRoute.GET("/:task_id", controller.GetSystemTask)
 		}
-		// Model replacement detection: the report, its settings, and manual
-		// runs share one channel permission, so an administrator granted it
-		// can maintain detection without access to system settings.
-		modelReplacementRoute := apiRouter.Group("/model_replacement", middleware.AdminAuth())
-		for _, route := range modelReplacementPermissionRoutes {
-			handlePermissionRoute(modelReplacementRoute, route.method, route.path, route.permission, route.handler)
-		}
 		systemInfoRoute := apiRouter.Group("/system-info")
 		systemInfoRoute.Use(middleware.RootAuth())
 		{
 			systemInfoRoute.GET("/instances", controller.ListSystemInstances)
+			systemInfoRoute.GET("/sync", controller.GetNodeSync)
 			systemInfoRoute.DELETE("/stale-instances", controller.DeleteStaleSystemInstances)
 			systemInfoRoute.DELETE("/instances/:node_name", controller.DeleteStaleSystemInstance)
 		}

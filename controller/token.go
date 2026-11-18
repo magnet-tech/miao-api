@@ -2,6 +2,7 @@ package controller
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -79,16 +80,13 @@ func buildMaskedTokenResponses(tokens []*model.Token) []*tokenResponse {
 }
 
 func getTokenRequestUserGroup(c *gin.Context) (string, error) {
-	if value, ok := c.Get(managedTokenOwnerKey); ok {
-		return value.(*model.User).Group, nil
-	}
 	if userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup); userGroup != "" {
 		return userGroup, nil
 	}
 	if userGroup := c.GetString("group"); userGroup != "" {
 		return userGroup, nil
 	}
-	return model.GetUserGroup(c.GetInt("id"), false)
+	return model.GetUserGroup(tokenOwnerID(c), false)
 }
 
 func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) bool {
@@ -132,7 +130,7 @@ func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) boo
 }
 
 func GetAllTokens(c *gin.Context) {
-	userId := tokenRequestOwnerID(c)
+	userId := tokenOwnerID(c)
 	pageInfo := common.GetPageQuery(c)
 	tokens, err := model.GetAllUserTokens(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
@@ -146,7 +144,7 @@ func GetAllTokens(c *gin.Context) {
 }
 
 func SearchTokens(c *gin.Context) {
-	userId := tokenRequestOwnerID(c)
+	userId := tokenOwnerID(c)
 	keyword := c.Query("keyword")
 	token := c.Query("token")
 
@@ -163,8 +161,8 @@ func SearchTokens(c *gin.Context) {
 }
 
 func GetToken(c *gin.Context) {
-	id, err := tokenRequestID(c)
-	userId := tokenRequestOwnerID(c)
+	id, err := strconv.Atoi(tokenIDParam(c))
+	userId := tokenOwnerID(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -190,8 +188,8 @@ func GetTokenAutoGroups(c *gin.Context) {
 }
 
 func GetTokenKey(c *gin.Context) {
-	id, err := tokenRequestID(c)
-	userId := tokenRequestOwnerID(c)
+	id, err := strconv.Atoi(tokenIDParam(c))
+	userId := tokenOwnerID(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -203,9 +201,6 @@ func GetTokenKey(c *gin.Context) {
 	}
 	params := tokenAuditParams(c)
 	params["id"], params["name"] = token.Id, token.Name
-	if !requireManagedTokenProof(c, "reveal", []int{id}, 0) {
-		return
-	}
 	common.SetContextKey(c, constant.ContextKeyTokenAuditSucceeded, true)
 	common.ApiSuccess(c, gin.H{
 		"key": token.GetFullKey(),
@@ -308,12 +303,28 @@ func AddToken(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	params := tokenAuditParams(c)
-	if len(request.Name) <= 50 {
-		params["name"] = request.Name
+	token := request.Token
+	if len(token.Name) > 50 {
+		common.ApiErrorT(c, "Token name is too long")
+		return
 	}
+	params := tokenAuditParams(c)
+	params["name"] = token.Name
+	// 非无限额度时，检查额度值是否超出有效范围
+	if !token.UnlimitedQuota {
+		if token.RemainQuota < 0 {
+			common.ApiErrorT(c, "Quota value cannot be negative")
+			return
+		}
+		maxQuotaValue := maxTokenQuota()
+		if token.RemainQuota > maxQuotaValue {
+			common.ApiErrorT(c, "Quota value exceeds valid range, maximum is {{max}}", map[string]any{"max": logger.FormatQuota(maxQuotaValue)})
+			return
+		}
+	}
+	// 检查用户令牌数量是否已达上限
 	maxTokens := operation_setting.GetMaxUserTokens()
-	count, err := model.CountUserTokens(tokenRequestOwnerID(c))
+	count, err := model.CountUserTokens(tokenOwnerID(c))
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -322,43 +333,9 @@ func AddToken(c *gin.Context) {
 		common.ApiErrorT(c, "Maximum number of tokens reached ({{max}})", map[string]any{"max": maxTokens})
 		return
 	}
-	if !requireManagedTokenProof(c, "create", nil, 1) {
-		return
-	}
-	cleanToken, ok := prepareTokenCreation(c, request)
-	if !ok {
-		return
-	}
-	if err := cleanToken.Insert(); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	params["id"], params["name"] = cleanToken.Id, cleanToken.Name
-	common.SetContextKey(c, constant.ContextKeyTokenAuditSucceeded, true)
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
-}
-
-func prepareTokenCreation(c *gin.Context, request tokenRequest) (*model.Token, bool) {
-	token := request.Token
-	if len(token.Name) > 50 {
-		common.ApiErrorT(c, "Token name is too long")
-		return nil, false
-	}
-	// 非无限额度时，检查额度值是否超出有效范围
-	if !token.UnlimitedQuota {
-		if token.RemainQuota < 0 {
-			common.ApiErrorT(c, "Quota value cannot be negative")
-			return nil, false
-		}
-		maxQuotaValue := maxTokenQuota()
-		if token.RemainQuota > maxQuotaValue {
-			common.ApiErrorT(c, "Quota value exceeds valid range, maximum is {{max}}", map[string]any{"max": logger.FormatQuota(maxQuotaValue)})
-			return nil, false
-		}
-	}
 	if token.Group == "auto" {
 		if !setTokenAutoGroups(c, &token, request.AutoGroups.Groups) {
-			return nil, false
+			return
 		}
 	} else {
 		token.CrossGroupRetry = false
@@ -368,10 +345,10 @@ func prepareTokenCreation(c *gin.Context, request tokenRequest) (*model.Token, b
 	if err != nil {
 		common.ApiErrorT(c, "Failed to generate token")
 		common.SysLog(common.LogText("failed to generate token key: %s", err.Error()))
-		return nil, false
+		return
 	}
 	cleanToken := model.Token{
-		UserId:             tokenRequestOwnerID(c),
+		UserId:             tokenOwnerID(c),
 		Name:               token.Name,
 		Key:                key,
 		CreatedTime:        common.GetTimestamp(),
@@ -387,12 +364,22 @@ func prepareTokenCreation(c *gin.Context, request tokenRequest) (*model.Token, b
 		AutoGroups:         token.AutoGroups,
 	}
 	cleanToken.AllowUserQuotaQuery = request.AllowUserQuotaQuery == nil || *request.AllowUserQuotaQuery
-	return &cleanToken, true
+	err = cleanToken.Insert()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	params["id"] = cleanToken.Id
+	common.SetContextKey(c, constant.ContextKeyTokenAuditSucceeded, true)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+	})
 }
 
 func DeleteToken(c *gin.Context) {
-	id, _ := tokenRequestID(c)
-	userId := tokenRequestOwnerID(c)
+	id, _ := strconv.Atoi(tokenIDParam(c))
+	userId := tokenOwnerID(c)
 	token, err := model.GetTokenByIds(id, userId)
 	if err != nil {
 		common.ApiError(c, err)
@@ -400,9 +387,6 @@ func DeleteToken(c *gin.Context) {
 	}
 	params := tokenAuditParams(c)
 	params["id"], params["name"] = token.Id, token.Name
-	if !requireManagedTokenProof(c, "delete", []int{id}, 0) {
-		return
-	}
 	err = token.Delete()
 	if err != nil {
 		common.ApiError(c, err)
@@ -416,7 +400,7 @@ func DeleteToken(c *gin.Context) {
 }
 
 func UpdateToken(c *gin.Context) {
-	userId := tokenRequestOwnerID(c)
+	userId := tokenOwnerID(c)
 	statusOnly := c.Query("status_only")
 	request := tokenRequest{}
 	err := c.ShouldBindJSON(&request)
@@ -450,13 +434,6 @@ func UpdateToken(c *gin.Context) {
 		return
 	}
 	params["name"] = cleanToken.Name
-	action := "update"
-	if statusOnly != "" {
-		action = "status"
-	}
-	if !requireManagedTokenProof(c, action, []int{cleanToken.Id}, 0) {
-		return
-	}
 	previous := *cleanToken
 	if token.Status == common.TokenStatusEnabled {
 		if cleanToken.Status == common.TokenStatusExpired && cleanToken.ExpiredTime <= common.GetTimestamp() && cleanToken.ExpiredTime != -1 {
@@ -549,10 +526,7 @@ func DeleteTokenBatch(c *gin.Context) {
 		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
-	userId := tokenRequestOwnerID(c)
-	if !requireManagedTokenProof(c, "delete_batch", tokenBatch.Ids, 0) {
-		return
-	}
+	userId := tokenOwnerID(c)
 	count, err := model.BatchDeleteTokens(tokenBatch.Ids, userId)
 	if err != nil {
 		common.ApiError(c, err)
@@ -582,10 +556,7 @@ func GetTokenKeysBatch(c *gin.Context) {
 		common.ApiErrorT(c, "Too many items in batch request, maximum is {{max}}", map[string]any{"max": 100})
 		return
 	}
-	userId := tokenRequestOwnerID(c)
-	if !requireManagedTokenProof(c, "reveal_batch", tokenBatch.Ids, 0) {
-		return
-	}
+	userId := tokenOwnerID(c)
 	tokens, err := model.GetTokenKeysByIds(tokenBatch.Ids, userId)
 	if err != nil {
 		common.ApiError(c, err)

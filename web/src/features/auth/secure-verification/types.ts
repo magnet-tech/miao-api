@@ -46,35 +46,14 @@ export type SecurityProofScope =
   | 'admin.user.passkey.reset'
   | 'admin.user.2fa.disable'
   | 'admin.user.binding.clear'
-  | 'admin.user.tokens'
   | 'admin.user.email'
+  | 'admin.user.tokens'
 
 /** ManageUser actions that change a user's status or role and need step-up. */
 export type AdminUserManageAction = 'disable' | 'enable' | 'promote' | 'demote'
 
 export type VerificationOperation =
-  | {
-      scope: 'admin.user.email'
-      context: { user_id: number; email: string; digest: string }
-    }
   | { scope: 'channel.key.read'; context: { channel_id: number } }
-  | {
-      scope: 'admin.user.tokens'
-      context: {
-        user_id: number
-        action:
-          | 'manage'
-          | 'create'
-          | 'update'
-          | 'status'
-          | 'delete'
-          | 'reveal'
-          | 'delete_batch'
-          | 'reveal_batch'
-        token_ids: number[]
-        count: number
-      }
-    }
   | {
       scope: 'account.binding.bind'
       context: { provider: string; email?: string; code?: string }
@@ -98,6 +77,16 @@ export type VerificationOperation =
       context:
         | { user_id: number; binding_type: string }
         | { user_id: number; provider_id: number }
+    }
+  | {
+      scope: 'admin.user.email'
+      context: { user_id: number; email: string }
+    }
+  | {
+      scope: 'admin.user.tokens'
+      context:
+        | { user_id: number; action: 'manage' }
+        | { user_id: number; action: 'reveal'; token_ids: number[] }
     }
   | {
       scope: 'access_token.generate'

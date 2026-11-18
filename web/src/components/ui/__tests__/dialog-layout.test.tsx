@@ -18,77 +18,21 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useState } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogTitle,
+} from '../alert-dialog'
 import { Dialog as DialogRoot, DialogContent, DialogTitle } from '../dialog'
 import { Sheet, SheetContent, SheetTitle } from '../sheet'
 
-function NestedPopupFixture(props: {
-  onParentChange: (open: boolean) => void
-}) {
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [confirmOpen, setConfirmOpen] = useState(false)
-  return (
-    <Sheet open onOpenChange={props.onParentChange}>
-      <SheetContent>
-        <SheetTitle>Managed keys</SheetTitle>
-        <Button onClick={() => setDialogOpen(true)}>Edit key</Button>
-        <Dialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          title='Key editor'
-          footer={
-            <Button onClick={() => setConfirmOpen(true)}>Delete key</Button>
-          }
-        >
-          <p>Key settings</p>
-          <ConfirmDialog
-            open={confirmOpen}
-            onOpenChange={setConfirmOpen}
-            title='Confirm key deletion'
-            desc='Delete this key?'
-            handleConfirm={() => setConfirmOpen(false)}
-          />
-        </Dialog>
-      </SheetContent>
-    </Sheet>
-  )
-}
-
 describe('dialog viewport layout', () => {
-  test('nested dialog and third-level confirmation retain their own backdrops and dismiss only the top popup', async () => {
-    const parentChange = vi.fn()
-    const user = userEvent.setup()
-    render(<NestedPopupFixture onParentChange={parentChange} />)
-    await user.click(screen.getByRole('button', { name: 'Edit key' }))
-    await user.click(screen.getByRole('button', { name: 'Delete key' }))
-    expect(
-      await screen.findByRole('alertdialog', { name: 'Confirm key deletion' })
-    ).toBeVisible()
-    expect(
-      document.querySelectorAll('[data-slot="sheet-overlay"]')
-    ).toHaveLength(1)
-    expect(
-      document.querySelectorAll('[data-slot="dialog-overlay"]')
-    ).toHaveLength(1)
-    expect(
-      document.querySelectorAll('[data-slot="alert-dialog-overlay"]')
-    ).toHaveLength(1)
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(
-      await screen.findByRole('dialog', { name: 'Key editor' })
-    ).toBeVisible()
-    await user.keyboard('{Escape}')
-    expect(
-      await screen.findByRole('dialog', { name: 'Managed keys' })
-    ).toBeVisible()
-    expect(parentChange).not.toHaveBeenCalled()
-  })
   test('long content shrinks independently of a stacked action footer', async () => {
     const onConfirm = vi.fn()
     render(
@@ -165,5 +109,59 @@ describe('dialog viewport layout', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(onConfirm).toHaveBeenCalledOnce()
+  })
+})
+
+describe('nested popup backdrops', () => {
+  test('a dialog and a confirmation opened from a drawer each render their own backdrop', () => {
+    render(
+      <Sheet open>
+        <SheetContent>
+          <SheetTitle>Edit user</SheetTitle>
+          <DialogRoot open>
+            <DialogContent>
+              <DialogTitle>Verify identity</DialogTitle>
+              <AlertDialog open>
+                <AlertDialogContent>
+                  <AlertDialogTitle>Confirm change</AlertDialogTitle>
+                </AlertDialogContent>
+              </AlertDialog>
+            </DialogContent>
+          </DialogRoot>
+        </SheetContent>
+      </Sheet>
+    )
+    expect(document.querySelectorAll('[data-slot=sheet-overlay]')).toHaveLength(
+      1
+    )
+    expect(
+      document.querySelectorAll('[data-slot=dialog-overlay]')
+    ).toHaveLength(1)
+    expect(
+      document.querySelectorAll('[data-slot=alert-dialog-overlay]')
+    ).toHaveLength(1)
+  })
+
+  test('clicking a nested dialog backdrop does not close the drawer underneath', async () => {
+    const onSheetOpenChange = vi.fn()
+    render(
+      <Sheet open onOpenChange={onSheetOpenChange}>
+        <SheetContent>
+          <SheetTitle>Edit user</SheetTitle>
+          <DialogRoot open>
+            <DialogContent>
+              <DialogTitle>Verify identity</DialogTitle>
+            </DialogContent>
+          </DialogRoot>
+        </SheetContent>
+      </Sheet>
+    )
+    const backdrop = document.querySelector('[data-slot=dialog-overlay]')
+    expect(backdrop).not.toBeNull()
+    await userEvent.click(backdrop as Element)
+    expect(onSheetOpenChange).not.toHaveBeenCalled()
+    expect(
+      document.querySelector('[data-slot=sheet-content]')
+    ).toHaveTextContent('Edit user')
   })
 })

@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useNavigate } from '@tanstack/react-router'
 import type { Row } from '@tanstack/react-table'
 import {
   Pencil,
@@ -29,6 +30,7 @@ import {
   Link2,
   CreditCard,
   Gauge,
+  KeySquare,
   Mail,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -50,6 +52,11 @@ import {
 } from '@/components/ui/tooltip'
 import type { AdminUserManageAction } from '@/features/auth/secure-verification'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
+import { UserLimitsDrawer } from '@/features/usage-limits/components/user-limits-drawer'
+import type { NoticeKind } from '@/features/user-emails/api'
+import { AccountNoticeDialog } from '@/features/user-emails/components/account-notice-dialog'
+import { UserEmailDrawer } from '@/features/user-emails/components/user-email-drawer'
+import { hasPermission } from '@/lib/admin-permissions'
 import { handleServerError } from '@/lib/handle-server-error'
 import { AuthOperationError } from '@/lib/secure-verification'
 import { useAuthStore } from '@/stores/auth-store'
@@ -63,12 +70,7 @@ import {
 } from '../constants'
 import { getUserActionMessage } from '../lib'
 import type { User } from '../types'
-import { DisabledUserNoticeDialog } from './dialogs/disabled-user-notice-dialog'
-import { UserApiKeysDrawer } from './dialogs/user-api-keys-drawer'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
-import { UserEmailDrawer } from './dialogs/user-email-drawer'
-import { UserLimitsDialog } from './dialogs/user-limits-dialog'
-import { UserQuotaDialog } from './user-quota-dialog'
 import { useUsers } from './users-provider'
 
 const MANAGE_ACTION_TITLES: Record<AdminUserManageAction, string> = {
@@ -85,16 +87,10 @@ interface DataTableRowActionsProps {
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
   const user = row.original
-  const operator = useAuthStore((state) => state.auth.user)
-  const canManageQuotaAndKeys =
-    !!operator &&
-    operator.role >= USER_ROLE.ADMIN &&
-    (operator.role === USER_ROLE.ROOT || user.role < USER_ROLE.ROOT)
   const {
     setOpen,
     setCurrentRow,
     triggerRefresh,
-    refreshOperatorPermissions,
     requestVerification,
     verificationActive,
   } = useUsers()
@@ -102,16 +98,20 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
-  const [limitsDialogOpen, setLimitsDialogOpen] = useState(false)
-  const [keysDrawerOpen, setKeysDrawerOpen] = useState(false)
-  const [emailDrawerOpen, setEmailDrawerOpen] = useState(false)
-  const [disabledNoticeOpen, setDisabledNoticeOpen] = useState(false)
-  const canSendEmail =
-    !!operator &&
-    operator.role >= USER_ROLE.ADMIN &&
-    user.role < USER_ROLE.ROOT &&
-    !!user.email?.trim()
-  const [quotaDialogOpen, setQuotaDialogOpen] = useState(false)
+  const [limitsOpen, setLimitsOpen] = useState(false)
+  const [emailOpen, setEmailOpen] = useState(false)
+  const [notice, setNotice] = useState<{
+    kind: NoticeKind
+    token: string
+  } | null>(null)
+  const currentUser = useAuthStore((state) => state.auth.user)
+  const navigate = useNavigate()
+  const operatorRole = currentUser?.role ?? 0
+  // The server's rule (canManageTargetRole): root, or a strictly higher role.
+  const canManageTarget =
+    operatorRole === USER_ROLE.ROOT || operatorRole > user.role
+  const canEmail =
+    canManageTarget && hasPermission(currentUser, 'user_email', 'send')
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -139,7 +139,17 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       if (result.success) {
         toast.success(t(getUserActionMessage(action)))
         triggerRefresh()
-        if (action === 'disable' && canSendEmail) setDisabledNoticeOpen(true)
+        // A verified disable/enable returns a one-time grant for the matching
+        // notice email, so sending it needs no second verification.
+        const noticeToken = (
+          result.data as { notice_token?: string } | undefined
+        )?.notice_token
+        if (user.email && noticeToken) {
+          setNotice({
+            kind: action === 'disable' ? 'suspended' : 'restored',
+            token: noticeToken,
+          })
+        }
       } else {
         handleServerError(result, t('Failed to {{action}} user', { action }))
       }
@@ -238,9 +248,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       <DataTableRowActionMenu
         ariaLabel={t('Open menu')}
         contentClassName='w-48'
-        onOpenChange={(open) => {
-          if (open) void refreshOperatorPermissions()
-        }}
       >
         {isDisabled ? (
           <DropdownMenuItem onClick={() => handleManage('enable')}>
@@ -303,47 +310,46 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuShortcut>
         </DropdownMenuItem>
 
-        <DropdownMenuItem
-          onClick={() => setLimitsDialogOpen(true)}
-          disabled={!canManageQuotaAndKeys}
-        >
-          {t('Usage Limits')}
-          <DropdownMenuShortcut>
-            <Gauge size={16} />
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
+        {canManageTarget &&
+          hasPermission(currentUser, 'user_limit', 'read') && (
+            <DropdownMenuItem onClick={() => setLimitsOpen(true)}>
+              {t('Usage Limits')}
+              <DropdownMenuShortcut>
+                <Gauge size={16} />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+          )}
+
+        {canManageTarget &&
+          hasPermission(currentUser, 'user_token', 'read') && (
+            <DropdownMenuItem
+              disabled={isDisabled}
+              onClick={() =>
+                navigate({ to: '/keys', search: { owner: user.id } })
+              }
+            >
+              {isDisabled
+                ? t('Manage API Keys (user disabled)')
+                : t('Manage API Keys')}
+              <DropdownMenuShortcut>
+                <KeySquare size={16} />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+          )}
+
+        {canEmail && (
+          <DropdownMenuItem
+            disabled={!user.email}
+            onClick={() => setEmailOpen(true)}
+          >
+            {user.email ? t('Send email') : t('Send email (no address)')}
+            <DropdownMenuShortcut>
+              <Mail size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+        )}
 
         <DropdownMenuSeparator />
-
-        <DropdownMenuItem
-          disabled={!canSendEmail}
-          onClick={() => setEmailDrawerOpen(true)}
-        >
-          {t('Send email')}
-          <DropdownMenuShortcut>
-            <Mail size={16} />
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
-
-        <DropdownMenuItem
-          disabled={!canManageQuotaAndKeys}
-          onClick={() => setQuotaDialogOpen(true)}
-        >
-          {t('Adjust Quota')}
-          <DropdownMenuShortcut>
-            <CreditCard size={16} />
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
-
-        <DropdownMenuItem
-          disabled={!canManageQuotaAndKeys}
-          onClick={() => setKeysDrawerOpen(true)}
-        >
-          {t('Key management')}
-          <DropdownMenuShortcut>
-            <KeyRound size={16} />
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
 
         <DropdownMenuItem
           onSelect={(event) => {
@@ -423,44 +429,29 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         onSuccess={triggerRefresh}
       />
 
-      <UserLimitsDialog
-        open={limitsDialogOpen && canManageQuotaAndKeys}
-        onOpenChange={setLimitsDialogOpen}
-        user={{ id: user.id, username: user.username }}
-      />
-      {canManageQuotaAndKeys && quotaDialogOpen && (
-        <UserQuotaDialog
-          open={quotaDialogOpen}
-          onOpenChange={setQuotaDialogOpen}
-          userId={user.id}
-          currentQuota={user.quota}
-          onSuccess={triggerRefresh}
-        />
-      )}
-      {canManageQuotaAndKeys && keysDrawerOpen && (
-        <UserApiKeysDrawer
-          open={keysDrawerOpen}
-          onOpenChange={setKeysDrawerOpen}
+      {limitsOpen && (
+        <UserLimitsDrawer
+          open={limitsOpen}
+          onOpenChange={setLimitsOpen}
           user={{ id: user.id, username: user.username }}
         />
       )}
-      {canSendEmail && disabledNoticeOpen && (
-        <DisabledUserNoticeDialog
-          key={user.id}
-          open
-          onOpenChange={setDisabledNoticeOpen}
-          user={{
-            id: user.id,
-            username: user.username,
-            email: user.email ?? '',
-          }}
+
+      {emailOpen && (
+        <UserEmailDrawer
+          open={emailOpen}
+          onOpenChange={setEmailOpen}
+          user={user}
+          requestVerification={requestVerification}
         />
       )}
-      {canSendEmail && emailDrawerOpen && (
-        <UserEmailDrawer
-          key={user.id}
-          open
-          onOpenChange={setEmailDrawerOpen}
+
+      {notice && (
+        <AccountNoticeDialog
+          open={!verificationActive}
+          onOpenChange={(open) => !open && setNotice(null)}
+          kind={notice.kind}
+          noticeToken={notice.token}
           user={user}
         />
       )}

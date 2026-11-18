@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type Table } from '@tanstack/react-table'
+import type { Table } from '@tanstack/react-table'
 import { Copy, Trash2, Loader2 } from 'lucide-react'
 import { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -29,9 +29,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { hasPermission } from '@/lib/admin-permissions'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { useAuthStore } from '@/stores/auth-store'
 
-import { type ApiKey } from '../types'
+import type { ApiKey } from '../types'
 import { ApiKeysMultiDeleteDialog } from './api-keys-multi-delete-dialog'
 import { useApiKeys } from './api-keys-provider'
 
@@ -43,7 +45,11 @@ export function DataTableBulkActions<TData>({
   table,
 }: DataTableBulkActionsProps<TData>) {
   const { t } = useTranslation()
-  const { resolveRealKeysBatch } = useApiKeys()
+  const { resolveRealKeysBatch, owner, canChange } = useApiKeys()
+  const currentUser = useAuthStore((state) => state.auth.user)
+  // Another user's full keys need the permission to view them.
+  const canCopy =
+    !owner || hasPermission(currentUser, 'user_token', 'secret_view')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isCopying, setIsCopying] = useState(false)
   const selectedRows = table.getFilteredSelectedRowModel().rows
@@ -91,7 +97,7 @@ export function DataTableBulkActions<TData>({
                 size='icon'
                 className='size-8'
                 onClick={handleBatchCopy}
-                disabled={isCopying}
+                disabled={isCopying || !canCopy}
                 aria-label={t('Copy selected keys')}
               />
             }
@@ -114,6 +120,7 @@ export function DataTableBulkActions<TData>({
                 variant='destructive'
                 size='icon'
                 onClick={() => setShowDeleteConfirm(true)}
+                disabled={!canChange}
                 className='size-8'
                 aria-label={t('Delete selected API keys')}
               />

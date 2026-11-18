@@ -31,6 +31,8 @@ const apiKeySearchSchema = z.object({
     .catch([]),
   filter: z.string().optional().catch(''),
   token: z.string().optional().catch(''),
+  // The user whose keys an administrator manages.
+  owner: z.number().int().positive().optional().catch(undefined),
 })
 
 export const Route = createFileRoute('/_authenticated/keys/')({

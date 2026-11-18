@@ -17,8 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
-import { requireServerSuccess } from '@/lib/server-error-message'
-import type { UserLimits } from '@/lib/usage-limits'
 
 import type {
   RedemptionRequest,
@@ -60,16 +58,6 @@ export function isApiSuccess(response: ApiResponse): boolean {
 export async function getTopupInfo(): Promise<TopupInfoResponse> {
   const res = await api.get('/api/user/topup/info')
   return res.data
-}
-
-/**
- * Get the usage limits and concurrency cap an administrator set for the
- * current user
- */
-export async function getSelfLimits(): Promise<UserLimits> {
-  const res = await api.get('/api/user/self/limits')
-  requireServerSuccess(res.data)
-  return res.data.data
 }
 
 /**

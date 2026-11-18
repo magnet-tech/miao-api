@@ -42,7 +42,6 @@ export const userSchema = z.object({
   wechat_id: z.string().optional(),
   telegram_id: z.string().optional(),
   email: z.string().optional(),
-  allow_without_email: z.boolean().optional(),
   quota: z.number(),
   used_quota: z.number(),
   request_count: z.number(),
@@ -60,6 +59,8 @@ export const userSchema = z.object({
   last_login_at: z.number().optional(),
   DeletedAt: z.any().nullable().optional(),
   remark: z.string().optional(),
+  email_verified: z.boolean().optional(),
+  require_verified_email: z.boolean().optional(),
   admin_permissions: z
     .record(z.string(), z.record(z.string(), z.boolean()))
     .optional(),
@@ -126,7 +127,7 @@ export interface UserFormData {
   quota?: number // Only used when updating user
   group?: string // Only used when updating user
   remark?: string // Only used when updating user
-  allow_without_email?: boolean
+  require_verified_email?: boolean
   admin_permissions?: AdminPermissionMatrix
 }
 
@@ -145,21 +146,6 @@ export interface ManageUserQuotaPayload {
   action: 'add_quota'
   mode: QuotaAdjustMode
   value: number
-}
-
-/** One usage limit rule as the API saves it; quota is in quota units. */
-export interface UserUsageRulePayload {
-  models?: string[]
-  mode?: 'window' | 'calendar'
-  calendar_period?: import('@/lib/usage-limits').CalendarPeriod
-  window_seconds: number
-  quota_limit: number
-  enabled: boolean
-}
-
-export interface UpdateUserLimitsPayload {
-  max_concurrency: number
-  usage_rules: UserUsageRulePayload[]
 }
 
 // ============================================================================

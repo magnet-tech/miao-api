@@ -46,7 +46,8 @@ function AlertDialogOverlay({
 }: AlertDialogPrimitive.Backdrop.Props) {
   return (
     <AlertDialogPrimitive.Backdrop
-      // Confirmation dialogs inside drawers need their own blocking backdrop.
+      // Base UI skips backdrops of nested popups; render them so a dialog
+      // opened from a drawer shields the drawer underneath.
       forceRender
       data-slot='alert-dialog-overlay'
       className={cn(

@@ -38,14 +38,7 @@ import { useApiKeys } from './api-keys-provider'
 
 export function ApiKeysDeleteDialog() {
   const { t } = useTranslation()
-  const {
-    open,
-    setOpen,
-    currentRow,
-    triggerRefresh,
-    scope,
-    verificationActive,
-  } = useApiKeys()
+  const { open, setOpen, currentRow, triggerRefresh, tokenScope } = useApiKeys()
   const [isDeleting, setIsDeleting] = useState(false)
 
   const handleDelete = async () => {
@@ -53,7 +46,7 @@ export function ApiKeysDeleteDialog() {
 
     setIsDeleting(true)
     try {
-      const result = await deleteApiKey(currentRow.id, scope)
+      const result = await deleteApiKey(currentRow.id, tokenScope)
       if (result.success) {
         toast.success(t(SUCCESS_MESSAGES.API_KEY_DELETED))
         setOpen(null)
@@ -70,7 +63,7 @@ export function ApiKeysDeleteDialog() {
 
   return (
     <AlertDialog
-      open={open === 'delete' && !verificationActive}
+      open={open === 'delete'}
       onOpenChange={(open) => !open && setOpen(null)}
     >
       <AlertDialogContent>

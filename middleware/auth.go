@@ -517,7 +517,7 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 			c.Abort()
 			return
 		}
-		if !allowVerifiedEmailAPI(c, userCache) {
+		if abortIfEmailVerificationRequired(c, token.UserId, false) {
 			return
 		}
 
@@ -619,11 +619,11 @@ func TokenAuth() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusForbidden, common.TranslateMessage(c, i18n.MsgAuthUserBanned))
 			return
 		}
-
-		userCache.WriteContext(c)
-		if !allowVerifiedEmailAPI(c, userCache) {
+		if abortIfEmailVerificationRequired(c, token.UserId, true) {
 			return
 		}
+
+		userCache.WriteContext(c)
 
 		userGroup := userCache.Group
 		tokenGroup := token.Group

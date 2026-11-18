@@ -26,12 +26,14 @@ import { toast } from 'sonner'
 
 import {
   SideDrawerSection,
+  sideDrawerSwitchItemClassName,
   sideDrawerContentClassName,
   sideDrawerFooterClassName,
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
-  sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
+import { PasswordInput } from '@/components/password-input'
+import { PasswordStrength } from '@/components/password-strength'
 import { PermissionMatrix } from '@/components/permission-matrix'
 import { Button } from '@/components/ui/button'
 import { Combobox } from '@/components/ui/combobox'
@@ -171,7 +173,6 @@ export function UsersMutateDrawer({
   const selectedRole = form.watch('role')
   const canEditAdminPermissions = currentUser?.role === ROLE.SUPER_ADMIN
   const targetIsAdmin = (selectedRole ?? currentRow?.role ?? 0) >= ROLE.ADMIN
-  const targetIsRoot = currentRow?.role === ROLE.SUPER_ADMIN
 
   const onSubmit = async (data: UserFormValues) => {
     if (!isUpdate || data.password) {
@@ -396,10 +397,17 @@ export function UsersMutateDrawer({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>{t('Password')}</FormLabel>
-                      <FormControl>
-                        <Input
+                      <FormControl
+                        describedBy={
+                          !isUpdate || field.value
+                            ? 'user-password-strength'
+                            : undefined
+                        }
+                      >
+                        <PasswordInput
                           {...field}
-                          type='password'
+                          value={field.value ?? ''}
+                          autoComplete='new-password'
                           placeholder={
                             isUpdate
                               ? t('Leave empty to keep unchanged')
@@ -407,41 +415,66 @@ export function UsersMutateDrawer({
                           }
                         />
                       </FormControl>
+                      <PasswordStrength
+                        id='user-password-strength'
+                        value={field.value ?? ''}
+                        quietWhenEmpty={isUpdate}
+                      />
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-
-                <FormField
-                  control={form.control}
-                  name='allow_without_email'
-                  render={({ field }) => (
-                    <FormItem className={sideDrawerSwitchItemClassName()}>
-                      <div className='space-y-1'>
-                        <FormLabel className='!mt-0'>
-                          {t('Allow use without a bound email')}
-                        </FormLabel>
-                        <FormDescription>
-                          {targetIsRoot
-                            ? t(
-                                'Root can always use the site without an email.'
-                              )
-                            : t(
-                                'When enabled, this user can sign in and call the API without binding and verifying an email.'
-                              )}
-                        </FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch
-                          checked={targetIsRoot || !!field.value}
-                          disabled={targetIsRoot}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
               </SideDrawerSection>
+
+              {/* Email verification requirement (fork feature) */}
+              {(form.watch('role') ?? 1) < ROLE.SUPER_ADMIN &&
+                hasPermission(
+                  currentUser,
+                  'user_email_verification',
+                  'write'
+                ) && (
+                  <SideDrawerSection>
+                    <h3 className='text-sm font-medium'>
+                      {t('Email Verification')}
+                    </h3>
+                    <FormField
+                      control={form.control}
+                      name='require_verified_email'
+                      render={({ field }) => (
+                        <FormItem className={sideDrawerSwitchItemClassName()}>
+                          <div className='space-y-1'>
+                            <FormLabel>
+                              {t('Require a verified email to use the service')}
+                            </FormLabel>
+                            <FormDescription>
+                              {t(
+                                'When on and the email is not verified, API key requests are rejected and the console asks the user to verify after sign-in.'
+                              )}
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Switch
+                              checked={field.value ?? false}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    {isUpdate && (
+                      <p className='text-muted-foreground text-xs'>
+                        {currentRow?.email
+                          ? t('Current email: {{email}} ({{state}})', {
+                              email: currentRow.email,
+                              state: currentRow.email_verified
+                                ? t('verified')
+                                : t('not verified'),
+                            })
+                          : t('This user has no email address yet.')}
+                      </p>
+                    )}
+                  </SideDrawerSection>
+                )}
 
               {/* Group & Quota Settings (Update only) */}
               {isUpdate && (

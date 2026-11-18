@@ -78,6 +78,10 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 	}
 	appendTaskLogInfo(task, other)
 	attachQuotaSaturation(c, info, other)
+	if len(info.RequestPluginSteps) > 0 {
+		other.SetAdmin("request_plugins", info.RequestPluginSteps)
+	}
+	appendRequestPluginRecord(info, other)
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 		ChannelId: info.ChannelId,
 		ModelName: info.OriginModelName,
@@ -88,7 +92,8 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 		Group:     info.UsingGroup,
 		Other:     other,
 	})
-	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota, info.OriginModelName)
+	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
+	RecordRelayUserUsage(info, info.PriceData.Quota)
 	model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
 }
 
@@ -276,7 +281,8 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	taskAdjustTokenQuota(ctx, task, -quota)
 
 	// 3. 回减预扣时累计的用户和渠道用量，请求次数保持不变
-	model.UpdateUserUsedQuota(task.UserId, -quota, taskModelName(task))
+	model.UpdateUserUsedQuota(task.UserId, -quota)
+	RefundUserUsage(task.UserId, taskModelName(task), quota, task.SubmitTime)
 	model.UpdateChannelUsedQuota(task.ChannelId, -quota)
 
 	// 4. 记录日志
@@ -343,7 +349,12 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	}
 
 	// 提交阶段已经累计过一次请求；结算阶段只调整最终用量。
-	model.UpdateUserUsedQuota(task.UserId, quotaDelta, taskModelName(task))
+	model.UpdateUserUsedQuota(task.UserId, quotaDelta)
+	if quotaDelta > 0 {
+		RecordUserUsage(task.UserId, taskModelName(task), quotaDelta)
+	} else {
+		RefundUserUsage(task.UserId, taskModelName(task), -quotaDelta, task.SubmitTime)
+	}
 	model.UpdateChannelUsedQuota(task.ChannelId, quotaDelta)
 
 	var logType int

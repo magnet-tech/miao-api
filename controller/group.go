@@ -26,8 +26,7 @@ func GetGroups(c *gin.Context) {
 func GetUserGroups(c *gin.Context) {
 	usableGroups := make(map[string]map[string]any)
 	userGroup := ""
-	userId := tokenRequestOwnerID(c)
-	userGroup, _ = model.GetUserGroup(userId, false)
+	userGroup, _ = model.GetUserGroup(tokenOwnerID(c), false)
 	userUsableGroups := service.GetUserUsableGroups(userGroup)
 	for groupName, _ := range ratio_setting.GetGroupRatioCopy() {
 		// UserUsableGroups contains the groups that the user can use

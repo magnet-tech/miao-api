@@ -46,7 +46,8 @@ function DialogOverlay({
 }: DialogPrimitive.Backdrop.Props) {
   return (
     <DialogPrimitive.Backdrop
-      // Keep a nested modal above, and shield, every underlying popup.
+      // Base UI skips backdrops of nested popups; render them so a dialog
+      // opened from a drawer shields the drawer underneath.
       forceRender
       data-slot='dialog-overlay'
       className={cn(

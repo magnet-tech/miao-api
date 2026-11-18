@@ -11,7 +11,7 @@ func init() {
 		Actions: []ActionDefinition{{
 			Action:         ActionRead,
 			LabelKey:       "View other accounts' audit logs",
-			DescriptionKey: "View user and admin audit records.",
+			DescriptionKey: "View audit records from user and admin roles. Root records are always excluded.",
 		}},
 	})
 }

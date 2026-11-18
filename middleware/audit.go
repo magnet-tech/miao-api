@@ -47,8 +47,6 @@ var auditRouteActions = map[string]string{
 	"POST /api/user/topup/complete":                    "user.topup_complete",
 	"DELETE /api/user/:id/reset_passkey":               "user.reset_passkey",
 	"DELETE /api/user/:id/oauth/bindings/:provider_id": "user.oauth_unbind",
-	"PUT /api/user/:id/limits":                         "user.limits_update",
-	"POST /api/user/:id/limits/reset":                  "user.limits_reset",
 
 	// 系统设置（root）
 	"POST /api/option/payment_compliance":       "option.payment_compliance",
@@ -213,17 +211,17 @@ const accessTokenAuditContextKey = "access_token_request_audit"
 func TokenOperationAudit() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var action, content string
-		route := c.FullPath()
-		managed := strings.HasPrefix(route, "/api/user/:id/tokens")
+		// An administrator's changes to another user's keys run the same
+		// handlers under /api/user/:id/tokens and are recorded as
+		// user_token.* actions naming that user.
+		path, tokenParam := c.FullPath(), "id"
+		suffix, managed := strings.CutPrefix(path, "/api/user/:id/tokens")
 		if managed {
-			route = strings.Replace(route, "/api/user/:id/tokens", "/api/token", 1)
-			route = strings.Replace(route, ":token_id", ":id", 1)
+			path, tokenParam = "/api/token"+strings.Replace(suffix, ":token_id", ":id", 1), "token_id"
 		}
-		switch c.Request.Method + " " + route {
+		switch c.Request.Method + " " + path {
 		case "POST /api/token/":
 			action, content = "token.create", "API token creation"
-		case "POST /api/token/batch/create":
-			action, content = "token.create", "API token batch creation"
 		case "PUT /api/token/":
 			action, content = "token.update", "API token configuration update"
 			if c.Query("status_only") != "" {
@@ -243,15 +241,14 @@ func TokenOperationAudit() gin.HandlerFunc {
 		}
 
 		params := model.AuditFields{}
-		idParam := c.Param("id")
-		if managed {
-			if ownerID, err := strconv.Atoi(idParam); err == nil {
-				params["user_id"] = ownerID
-			}
-			idParam = c.Param("token_id")
-		}
-		if id, err := strconv.Atoi(idParam); err == nil && id > 0 {
+		if id, err := strconv.Atoi(c.Param(tokenParam)); err == nil && id > 0 {
 			params["id"] = id
+		}
+		if managed {
+			action = "user_" + action
+			if owner, err := strconv.Atoi(c.Param("id")); err == nil {
+				params["target_user_id"] = owner
+			}
 		}
 		common.SetContextKey(c, constant.ContextKeyTokenAuditParams, params)
 		entry := model.AuditLog{
@@ -270,9 +267,6 @@ func TokenOperationAudit() gin.HandlerFunc {
 			entry.Success = entry.Status < 400 && common.GetContextKeyBool(c, constant.ContextKeyTokenAuditSucceeded)
 		}
 		model.RecordAuditLog(c, entry)
-		if managed {
-			common.SetContextKey(c, constant.ContextKeyAuditLogged, true)
-		}
 	}
 }
 

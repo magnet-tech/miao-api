@@ -38,6 +38,9 @@ func Init(db *gorm.DB) error {
 		if err := resetBuiltInRolePolicies(db); err != nil {
 			return err
 		}
+		if err := migrateLegacyModelReplacementGrants(db); err != nil {
+			return err
+		}
 	}
 
 	m, err := casbinmodel.NewModelFromString(modelText)

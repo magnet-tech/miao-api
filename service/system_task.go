@@ -46,11 +46,10 @@ type ScheduledSystemTaskHandler interface {
 	NewPayload() any
 }
 
-// FinishTimeIntervalHandler is implemented by a scheduled handler whose wait
-// before the next run depends on when the previous run finished. The
-// scheduler then uses IntervalAfter instead of Interval once a run exists.
-type FinishTimeIntervalHandler interface {
-	IntervalAfter(task *model.SystemTask, finishedAt time.Time) time.Duration
+// RunTimedSystemTaskHandler is a scheduled handler whose wait before the next
+// run depends on the previous run and when it finished.
+type RunTimedSystemTaskHandler interface {
+	IntervalAfter(previous *model.SystemTask, finishedAt time.Time) time.Duration
 }
 
 var (
@@ -158,6 +157,7 @@ func StartSystemTaskRunner() {
 					runSystemTaskScheduler()
 				}
 				runSystemTaskClaimPass(runnerID)
+				finishAppliedSyncTasks()
 			}
 
 			runPass()
@@ -292,7 +292,7 @@ func runSystemTaskScheduler() {
 				continue // an active row already exists
 			}
 			interval := scheduled.Interval()
-			if timed, ok := scheduled.(FinishTimeIntervalHandler); ok {
+			if timed, ok := scheduled.(RunTimedSystemTaskHandler); ok {
 				interval = timed.IntervalAfter(latest, time.Unix(latest.UpdatedAt, 0))
 			}
 			if now-latest.UpdatedAt < int64(interval.Seconds()) {

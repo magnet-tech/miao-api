@@ -16,290 +16,118 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { LineChart, ListChecks, Settings2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Play } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 
-import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout'
-import { LoadingState } from '@/components/loading-state'
-import { Badge } from '@/components/ui/badge'
+import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { TitledCard } from '@/components/ui/titled-card'
-import { handleServerError } from '@/lib/handle-server-error'
-import { requireServerSuccess } from '@/lib/server-error-message'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import dayjs from '@/lib/dayjs'
 
-import {
-  getModelReplacementChannels,
-  getModelReplacementOverview,
-  modelReplacementQueryKeys,
-  runModelReplacementChannelDetection,
-  runModelReplacementDetection,
-} from './api'
-import { ChannelReportPanel } from './components/report/channel-report-panel'
-import { ChannelSummaryTable } from './components/report/channel-summary-table'
-import { OverviewCards } from './components/report/overview-cards'
-import { ModelReplacementSettingsDrawer } from './components/settings/model-replacement-settings-drawer'
-import { countChannelHealth } from './lib/report'
+import { ChannelsTab } from './components/channels-tab'
+import { HistoryTab } from './components/history-tab'
+import { OverviewTab } from './components/overview-tab'
+import { SettingsTab } from './components/settings-tab'
+import { useDetectionOverview, useRunDetection } from './lib/hooks'
+import { useModelReplacementAccess } from './lib/utils'
 
-const ACTIVE_POLL_INTERVAL_MS = 5000
-const IDLE_POLL_INTERVAL_MS = 30000
-const ALL_MODELS = '__all__'
+export type ModelReplacementTab =
+  | 'overview'
+  | 'channels'
+  | 'history'
+  | 'settings'
 
-export function ModelReplacement() {
+type ModelReplacementProps = {
+  tab: ModelReplacementTab
+  lastRuns: number
+  edit?: string
+  onTabChange: (tab: ModelReplacementTab) => void
+  onLastRunsChange: (value: number) => void
+}
+
+export function ModelReplacement(props: ModelReplacementProps) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const [model, setModel] = useState<string | null>(null)
-  const [channelId, setChannelId] = useState<number | null>(null)
-  const [recordId, setRecordId] = useState<number | null>(null)
-  const [trackedChannelRunId, setTrackedChannelRunId] = useState<string | null>(
-    null
-  )
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const reportRef = useRef<HTMLDivElement>(null)
+  const access = useModelReplacementAccess()
+  const overviewQuery = useDetectionOverview()
+  const runDetection = useRunDetection()
+  const overview = overviewQuery.data
+  const active = overview?.active_run ?? null
 
-  const overviewQuery = useQuery({
-    queryKey: modelReplacementQueryKeys.overview(),
-    queryFn: async () =>
-      requireServerSuccess(await getModelReplacementOverview()).data ?? null,
-    refetchInterval: (query) =>
-      query.state.data?.active_run
-        ? ACTIVE_POLL_INTERVAL_MS
-        : IDLE_POLL_INTERVAL_MS,
-  })
-  const activeRunId = overviewQuery.data?.active_run?.task_id ?? null
-  const channelsQuery = useQuery({
-    queryKey: modelReplacementQueryKeys.channels(),
-    queryFn: async () =>
-      requireServerSuccess(await getModelReplacementChannels()).data ?? [],
-    refetchInterval:
-      activeRunId || trackedChannelRunId
-        ? ACTIVE_POLL_INTERVAL_MS
-        : IDLE_POLL_INTERVAL_MS,
-  })
-
-  // Reload the report once a run finishes so the new results show up.
-  const previousActiveRunId = useRef<string | null>(null)
-  useEffect(() => {
-    if (previousActiveRunId.current && !activeRunId) {
-      void queryClient.invalidateQueries({
-        queryKey: modelReplacementQueryKeys.channels(),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: [...modelReplacementQueryKeys.all, 'history'],
-      })
-    }
-    previousActiveRunId.current = activeRunId
-  }, [activeRunId, queryClient])
-
-  useEffect(() => {
-    if (
-      trackedChannelRunId &&
-      activeRunId !== trackedChannelRunId &&
-      overviewQuery.data?.last_run?.task_id === trackedChannelRunId
-    ) {
-      void queryClient.invalidateQueries({
-        queryKey: modelReplacementQueryKeys.channels(),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: [...modelReplacementQueryKeys.all, 'history'],
-      })
-      setTrackedChannelRunId(null)
-    }
-  }, [
-    activeRunId,
-    overviewQuery.data?.last_run?.task_id,
-    queryClient,
-    trackedChannelRunId,
-  ])
-
-  const runMutation = useMutation({
-    mutationFn: async () =>
-      requireServerSuccess(await runModelReplacementDetection()),
-    onSuccess: () => {
-      toast.success(t('Detection started'))
-    },
-    onError: (error) => handleServerError(error),
-    onSettled: () =>
-      queryClient.invalidateQueries({
-        queryKey: modelReplacementQueryKeys.overview(),
-      }),
-  })
-  const retestMutation = useMutation({
-    mutationFn: async (id: number) =>
-      requireServerSuccess(await runModelReplacementChannelDetection(id))
-        .data ?? null,
-    onSuccess: (run) => {
-      if (!run) return
-      setTrackedChannelRunId(run.task_id)
-      toast.success(t('Detection started'))
-    },
-    onError: (error) => handleServerError(error),
-    onSettled: () =>
-      queryClient.invalidateQueries({
-        queryKey: modelReplacementQueryKeys.overview(),
-      }),
-  })
-
-  const rows = useMemo(() => channelsQuery.data ?? [], [channelsQuery.data])
-  const detectedRows = useMemo(
-    () => rows.filter((row) => row.in_scope || row.latest),
-    [rows]
-  )
-  const models = overviewQuery.data?.models ?? []
-  const modelItems = [
-    { value: ALL_MODELS, label: t('All models (worst)') },
-    ...models.map((name) => ({ value: name, label: name })),
-  ]
-  // Visibility filters do not change the union of channels in detection scope.
-  const healthCounts = useMemo(() => countChannelHealth(rows), [rows])
-  // A chart channel that has since been deleted falls back to all channels.
-  const chartChannelId = detectedRows.some((row) => row.id === channelId)
-    ? channelId
-    : null
-
-  const handleViewReport = (id: number) => {
-    setChannelId(id)
-    setRecordId(null)
-    reportRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
-
-  let content = <LoadingState className='min-h-64' />
-  if (overviewQuery.isError && !overviewQuery.data) {
-    content = (
-      <ErrorState
-        title={t('We could not load model replacement detection.')}
-        onRetry={() => void overviewQuery.refetch()}
-      />
-    )
-  } else if (overviewQuery.data) {
-    const overview = overviewQuery.data
-    content = (
-      <div className='flex flex-col gap-4'>
-        <OverviewCards
-          overview={overview}
-          healthyCount={healthCounts.healthy}
-          totalCount={healthCounts.total}
-          isStarting={runMutation.isPending}
-          onRunNow={() => runMutation.mutate()}
-        />
-
-        <TitledCard
-          title={t('Channel summary')}
-          description={t(
-            'Latest detection result of every channel in scope. Percentages follow the selected model, or the worst model when none is selected.'
-          )}
-          icon={<ListChecks aria-hidden='true' />}
-          disableHoverEffect
-          action={
-            <Select
-              items={modelItems}
-              value={model ?? ALL_MODELS}
-              onValueChange={(value) =>
-                setModel(!value || value === ALL_MODELS ? null : value)
-              }
-            >
-              <SelectTrigger
-                className='w-full sm:w-56'
-                aria-label={t('Filter by model')}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
-                <SelectGroup>
-                  {modelItems.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          }
-        >
-          {channelsQuery.isError ? (
-            <ErrorState
-              title={t('We could not load the channel results.')}
-              onRetry={() => void channelsQuery.refetch()}
-            />
-          ) : (
-            <ChannelSummaryTable
-              rows={detectedRows}
-              model={model}
-              onViewReport={handleViewReport}
-              onRetest={(id) => retestMutation.mutate(id)}
-              isDetecting={
-                !!activeRunId ||
-                !!trackedChannelRunId ||
-                runMutation.isPending ||
-                retestMutation.isPending
-              }
-            />
-          )}
-        </TitledCard>
-
-        <div ref={reportRef} className='scroll-mt-4'>
-          <TitledCard
-            title={t('Channel detection report')}
-            description={t(
-              'Health of each detection run, filtered by channel, model, and date. With no channel selected, every channel is drawn as its own line; with a model selected, only the channels serving it are drawn.'
-            )}
-            icon={<LineChart aria-hidden='true' />}
-            disableHoverEffect
-          >
-            <ChannelReportPanel
-              channels={detectedRows}
-              models={models}
-              channelId={chartChannelId}
-              onChannelChange={setChannelId}
-              recordId={recordId}
-              onRecordChange={setRecordId}
-            />
-          </TitledCard>
-        </div>
-      </div>
-    )
+  let status = t('Off')
+  if (overview?.enabled) {
+    status = t('On · every {{minutes}} min', {
+      minutes: overview.interval_minutes,
+    })
   }
 
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
-        <span className='inline-flex min-w-0 items-center gap-2'>
-          <span className='truncate'>{t('Model replacement detection')}</span>
-          {overviewQuery.data && (
-            <Badge variant='outline' className='shrink-0'>
-              {overviewQuery.data.enabled ? t('On') : t('Off')}
-            </Badge>
-          )}
-        </span>
+        {t('Model Replacement Detection')}
       </SectionPageLayout.Title>
       <SectionPageLayout.Actions>
-        <Button
-          type='button'
-          variant='outline'
-          size='sm'
-          onClick={() => setSettingsOpen(true)}
-        >
-          <Settings2 data-icon='inline-start' aria-hidden='true' />
-          {t('Detection settings')}
-        </Button>
-        {/* The layout renders only its slots; the drawer portals out. */}
-        <ModelReplacementSettingsDrawer
-          open={settingsOpen}
-          onOpenChange={setSettingsOpen}
-        />
+        <div className='flex flex-wrap items-center gap-3'>
+          <StatusBadge
+            label={status}
+            variant={overview?.enabled ? 'success' : 'neutral'}
+            size='sm'
+          />
+          {overview?.last_run ? (
+            <span className='text-muted-foreground hidden text-sm md:inline'>
+              {t('Last run {{time}}', {
+                time: dayjs(overview.last_run.finished_at * 1000).format(
+                  'MM-DD HH:mm'
+                ),
+              })}
+            </span>
+          ) : null}
+          {access.canOperate ? (
+            <Button
+              type='button'
+              disabled={Boolean(active) || runDetection.isPending}
+              onClick={() => runDetection.mutate()}
+            >
+              <Play aria-hidden='true' />
+              {active ? t('Detecting...') : t('Run now')}
+            </Button>
+          ) : null}
+        </div>
       </SectionPageLayout.Actions>
-      <SectionPageLayout.Content>{content}</SectionPageLayout.Content>
+      <SectionPageLayout.Content>
+        <Tabs
+          value={props.tab}
+          onValueChange={(value) =>
+            props.onTabChange(value as ModelReplacementTab)
+          }
+        >
+          <TabsList variant='line' className='mb-2'>
+            <TabsTrigger value='overview'>{t('Overview')}</TabsTrigger>
+            <TabsTrigger value='channels'>{t('Channels')}</TabsTrigger>
+            <TabsTrigger value='history'>{t('History')}</TabsTrigger>
+            <TabsTrigger value='settings'>{t('Settings')}</TabsTrigger>
+          </TabsList>
+          <TabsContent value='overview'>
+            <OverviewTab
+              overview={overview}
+              lastRuns={props.lastRuns}
+              onLastRunsChange={props.onLastRunsChange}
+            />
+          </TabsContent>
+          <TabsContent value='channels'>
+            <ChannelsTab
+              activeChannelId={active?.channel_id ?? null}
+              busy={Boolean(active)}
+            />
+          </TabsContent>
+          <TabsContent value='history'>
+            <HistoryTab />
+          </TabsContent>
+          <TabsContent value='settings'>
+            <SettingsTab initialEdit={props.edit} />
+          </TabsContent>
+        </Tabs>
+      </SectionPageLayout.Content>
     </SectionPageLayout>
   )
 }

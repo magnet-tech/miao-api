@@ -50,9 +50,11 @@ import {
 import { useChatPresets } from '@/features/chat/hooks/use-chat-presets'
 import { resolveChatUrl, type ChatPreset } from '@/features/chat/lib/chat-links'
 import { sendToFluent } from '@/features/chat/lib/send-to-fluent'
+import { hasPermission } from '@/lib/admin-permissions'
 import { encodeChannelConnectionInfo } from '@/lib/channel-connection-info'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 import { handleServerError } from '@/lib/handle-server-error'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { updateApiKeyStatus } from '../api'
 import { API_KEY_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
@@ -88,8 +90,15 @@ export function DataTableRowActions<TData>({
     setResolvedKey,
     resolveRealKey,
     loadingKeys,
-    scope,
+    owner,
+    tokenScope,
+    canChange,
   } = useApiKeys()
+  const currentUser = useAuthStore((state) => state.auth.user)
+  // Another user's full keys need the permission to view them; the client
+  // shortcuts use the operator's own setup and are left out.
+  const canCopy =
+    !owner || hasPermission(currentUser, 'user_token', 'secret_view')
   const isEnabled = apiKey.status === API_KEY_STATUS.ENABLED
   const { chatPresets, serverAddress } = useChatPresets()
   const [isTogglingStatus, setIsTogglingStatus] = useState(false)
@@ -149,7 +158,7 @@ export function DataTableRowActions<TData>({
 
     setIsTogglingStatus(true)
     try {
-      const result = await updateApiKeyStatus(apiKey.id, newStatus, scope)
+      const result = await updateApiKeyStatus(apiKey.id, newStatus, tokenScope)
       if (result.success) {
         const message = isEnabled
           ? t(SUCCESS_MESSAGES.API_KEY_DISABLED)
@@ -182,7 +191,7 @@ export function DataTableRowActions<TData>({
               variant='ghost'
               size='icon-sm'
               onClick={handleToggleStatus}
-              disabled={isTogglingStatus}
+              disabled={isTogglingStatus || !canChange}
               aria-label={toggleLabel}
               className={
                 isEnabled
@@ -207,6 +216,7 @@ export function DataTableRowActions<TData>({
                 setCurrentRow(apiKey)
                 setOpen('update')
               }}
+              disabled={!canChange}
               aria-label={t('Edit')}
             />
           }
@@ -222,7 +232,7 @@ export function DataTableRowActions<TData>({
         modal={false}
       >
         <DropdownMenuItem
-          disabled={isRealKeyLoading}
+          disabled={isRealKeyLoading || !canCopy}
           onClick={async () => {
             const realKey = await resolveRealKey(apiKey.id)
             if (!realKey) return
@@ -236,7 +246,7 @@ export function DataTableRowActions<TData>({
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem
-          disabled={isRealKeyLoading}
+          disabled={isRealKeyLoading || !canCopy}
           onClick={async () => {
             const realKey = await resolveRealKey(apiKey.id)
             if (!realKey) return
@@ -253,43 +263,48 @@ export function DataTableRowActions<TData>({
             <Link size={16} />
           </DropdownMenuShortcut>
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={async () => {
-            const realKey = await resolveRealKey(apiKey.id)
-            if (!realKey) return
-            setResolvedKey(realKey)
-            setCurrentRow(apiKey)
-            setOpen('cc-switch')
-          }}
-        >
-          {t('CC Switch')}
-          <DropdownMenuShortcut>
-            <ArrowRightLeft size={16} />
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
-        {hasChatPresets && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>{t('Chat')}</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              {chatPresets.map((preset) => (
-                <DropdownMenuItem
-                  key={preset.id}
-                  onClick={() => handleOpenChatPreset(preset)}
-                >
-                  {preset.name}
-                  {preset.type !== 'web' && (
-                    <DropdownMenuShortcut>
-                      <ExternalLink size={16} />
-                    </DropdownMenuShortcut>
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+        {owner ? null : (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={async () => {
+                const realKey = await resolveRealKey(apiKey.id)
+                if (!realKey) return
+                setResolvedKey(realKey)
+                setCurrentRow(apiKey)
+                setOpen('cc-switch')
+              }}
+            >
+              {t('CC Switch')}
+              <DropdownMenuShortcut>
+                <ArrowRightLeft size={16} />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+            {hasChatPresets && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>{t('Chat')}</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {chatPresets.map((preset) => (
+                    <DropdownMenuItem
+                      key={preset.id}
+                      onClick={() => handleOpenChatPreset(preset)}
+                    >
+                      {preset.name}
+                      {preset.type !== 'web' && (
+                        <DropdownMenuShortcut>
+                          <ExternalLink size={16} />
+                        </DropdownMenuShortcut>
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+          </>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem
+          disabled={!canChange}
           onClick={() => {
             setCurrentRow(apiKey)
             setOpen('delete')

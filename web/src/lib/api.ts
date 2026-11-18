@@ -48,21 +48,27 @@ export async function getSelf() {
   return res.data
 }
 
-export async function getUserModels(): Promise<{
+/** Models a user can use; ownerId names a user whose keys an administrator manages. */
+export async function getUserModels(ownerId?: number): Promise<{
   success: boolean
   message?: string
   data?: string[]
 }> {
-  const res = await api.get('/api/user/models')
+  const res = await api.get(
+    ownerId ? `/api/user/${ownerId}/tokens/models` : '/api/user/models'
+  )
   return res.data
 }
 
-export async function getUserGroups(): Promise<{
+/** Groups a user can use; ownerId names a user whose keys an administrator manages. */
+export async function getUserGroups(ownerId?: number): Promise<{
   success: boolean
   message?: string
   data?: Record<string, { desc: string; ratio: number | string }>
 }> {
-  const res = await api.get('/api/user/self/groups')
+  const res = await api.get(
+    ownerId ? `/api/user/${ownerId}/tokens/groups` : '/api/user/self/groups'
+  )
   return res.data
 }
 

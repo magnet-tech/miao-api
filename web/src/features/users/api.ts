@@ -22,9 +22,7 @@ import type { PermissionCatalog } from '@/lib/admin-permissions'
 import { api } from '@/lib/api'
 import type { CustomOAuthBinding } from '@/lib/oauth'
 import { requireServerSuccess } from '@/lib/server-error-message'
-import type { UserLimits } from '@/lib/usage-limits'
 
-import type { UserEmailDraft } from './lib/user-email'
 import type {
   User,
   GetUsersParams,
@@ -34,7 +32,6 @@ import type {
   ManageUserAction,
   ManageUserQuotaPayload,
   ApiResponse,
-  UpdateUserLimitsPayload,
 } from './types'
 
 // A step-up proof is single-use, so the request carrying it must never be
@@ -45,19 +42,6 @@ function securityProofConfig(proofToken?: string): AxiosRequestConfig {
     headers: { 'X-Security-Proof': proofToken },
     singleUseAuthorization: true,
   }
-}
-
-export async function sendUserEmail(
-  userId: number,
-  draft: UserEmailDraft,
-  proof: string,
-  signal: AbortSignal
-): Promise<void> {
-  const response = await api.post(`/api/user/${userId}/email`, draft, {
-    ...securityProofConfig(proof),
-    signal,
-  })
-  requireServerSuccess(response.data)
 }
 
 // ============================================================================
@@ -223,58 +207,6 @@ export async function resetUserTwoFA(
 export async function getGroups(): Promise<ApiResponse<string[]>> {
   const res = await api.get('/api/group/')
   return res.data
-}
-
-// ============================================================================
-// Usage Limit APIs
-// ============================================================================
-
-/**
- * Get a user's usage limit rules (with their current window) and
- * concurrency cap
- */
-export async function getUserLimits(userId: number): Promise<UserLimits> {
-  const res = await api.get(`/api/user/${userId}/limits`)
-  requireServerSuccess(res.data)
-  return res.data.data
-}
-
-export interface UserLimitModel {
-  model: string
-  channels: { id: number; name: string; type: number; groups: string[] }[]
-}
-
-export async function getUserLimitModels(
-  userId: number
-): Promise<UserLimitModel[]> {
-  const res = await api.get(`/api/user/${userId}/limits/models`)
-  return requireServerSuccess(res.data).data ?? []
-}
-
-/**
- * Replace a user's usage limit rules and concurrency cap
- */
-export async function updateUserLimits(
-  userId: number,
-  payload: UpdateUserLimitsPayload
-): Promise<UserLimits> {
-  const res = await api.put(`/api/user/${userId}/limits`, payload)
-  requireServerSuccess(res.data)
-  return res.data.data
-}
-
-/**
- * End a user's current usage windows; `windowSeconds` 0 ends all of them
- */
-export async function resetUserLimitWindows(
-  userId: number,
-  windowSeconds = 0
-): Promise<UserLimits> {
-  const res = await api.post(`/api/user/${userId}/limits/reset`, {
-    window_seconds: windowSeconds,
-  })
-  requireServerSuccess(res.data)
-  return res.data.data
 }
 
 /**

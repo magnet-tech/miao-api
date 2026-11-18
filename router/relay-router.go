@@ -226,24 +226,24 @@ func SetRelayRouter(router *gin.Engine) {
 func registerMjRouterGroup(relayMjRouter *gin.RouterGroup) {
 	relayMjRouter.GET("/image/:id", relay.RelayMidjourneyImage)
 	relayMjRouter.Use(middleware.TokenAuth(), middleware.Distribute())
-	// Only submissions count toward the user concurrency limit; task queries do not.
-	submitLimit := middleware.MidjourneyUserConcurrencyLimit()
+	// Submissions count toward the user's concurrency limit; task queries do not.
+	submit := middleware.MidjourneyUserConcurrencyLimit()
 	{
-		relayMjRouter.POST("/submit/action", submitLimit, controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/shorten", submitLimit, controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/modal", submitLimit, controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/imagine", submitLimit, controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/change", submitLimit, controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/simple-change", submitLimit, controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/describe", submitLimit, controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/blend", submitLimit, controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/edits", submitLimit, controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/video", submitLimit, controller.RelayMidjourney)
+		relayMjRouter.POST("/submit/action", submit, controller.RelayMidjourney)
+		relayMjRouter.POST("/submit/shorten", submit, controller.RelayMidjourney)
+		relayMjRouter.POST("/submit/modal", submit, controller.RelayMidjourney)
+		relayMjRouter.POST("/submit/imagine", submit, controller.RelayMidjourney)
+		relayMjRouter.POST("/submit/change", submit, controller.RelayMidjourney)
+		relayMjRouter.POST("/submit/simple-change", submit, controller.RelayMidjourney)
+		relayMjRouter.POST("/submit/describe", submit, controller.RelayMidjourney)
+		relayMjRouter.POST("/submit/blend", submit, controller.RelayMidjourney)
+		relayMjRouter.POST("/submit/edits", submit, controller.RelayMidjourney)
+		relayMjRouter.POST("/submit/video", submit, controller.RelayMidjourney)
 		//relayMjRouter.POST("/notify", controller.RelayMidjourney)
 		relayMjRouter.GET("/task/:id/fetch", controller.RelayMidjourney)
 		relayMjRouter.GET("/task/:id/image-seed", controller.RelayMidjourney)
 		relayMjRouter.POST("/task/list-by-condition", controller.RelayMidjourney)
-		relayMjRouter.POST("/insight-face/swap", submitLimit, controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/upload-discord-images", submitLimit, controller.RelayMidjourney)
+		relayMjRouter.POST("/insight-face/swap", submit, controller.RelayMidjourney)
+		relayMjRouter.POST("/submit/upload-discord-images", submit, controller.RelayMidjourney)
 	}
 }

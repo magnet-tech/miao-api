@@ -226,8 +226,8 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 			Description: "quota_not_enough",
 		}
 	}
-	if apiErr := service.CheckUserUsageLimit(c, info.UserId, 0, modelName); apiErr != nil {
-		return service.MidjourneyErrorWrapper(constant.MjUserLimitReached, apiErr.Error())
+	if apiErr := service.CheckUserUsageLimit(c, info.UserId, modelName, 0); apiErr != nil {
+		return &dto.MidjourneyResponse{Code: constant.MjUserLimitReached, Description: apiErr.Error()}
 	}
 	requestURL := getMjRequestPath(c.Request.URL.String())
 	baseURL := c.GetString("base_url")
@@ -297,7 +297,8 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 			Group:     info.UsingGroup,
 			Other:     other,
 		})
-		model.UpdateUserUsedQuotaAndRequestCount(info.UserId, midjourneyTask.Quota, modelName)
+		model.UpdateUserUsedQuotaAndRequestCount(info.UserId, midjourneyTask.Quota)
+		service.RecordUserUsage(info.UserId, modelName, midjourneyTask.Quota)
 		model.UpdateChannelUsedQuota(billingChannelId, midjourneyTask.Quota)
 	}
 	c.Writer.WriteHeader(mjResp.StatusCode)
@@ -553,8 +554,8 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		}
 	}
 	if consumeQuota {
-		if apiErr := service.CheckUserUsageLimit(c, relayInfo.UserId, 0, modelName); apiErr != nil {
-			return service.MidjourneyErrorWrapper(constant.MjUserLimitReached, apiErr.Error())
+		if apiErr := service.CheckUserUsageLimit(c, relayInfo.UserId, modelName, 0); apiErr != nil {
+			return &dto.MidjourneyResponse{Code: constant.MjUserLimitReached, Description: apiErr.Error()}
 		}
 	}
 
@@ -681,7 +682,8 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 			Group:     relayInfo.UsingGroup,
 			Other:     other,
 		})
-		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, midjourneyTask.Quota, modelName)
+		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, midjourneyTask.Quota)
+		service.RecordUserUsage(relayInfo.UserId, modelName, midjourneyTask.Quota)
 		model.UpdateChannelUsedQuota(billingChannelId, midjourneyTask.Quota)
 	}
 

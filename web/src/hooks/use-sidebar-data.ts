@@ -22,14 +22,15 @@ import {
   ClipboardList,
   CreditCard,
   FileText,
+  Fingerprint,
   FlaskConical,
+  Gauge,
   Key,
   LayoutDashboard,
   ListTodo,
   MessageSquare,
   PlugZap,
   Radio,
-  ScanSearch,
   ServerCog,
   Settings,
   ShieldCheck,
@@ -37,15 +38,14 @@ import {
   User,
   Users,
   Wallet,
+  Workflow,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import type { SidebarBadges, SidebarData } from '@/components/layout/types'
-import {
-  ADMIN_PERMISSION_ACTIONS,
-  ADMIN_PERMISSION_RESOURCES,
-} from '@/lib/admin-permissions'
+import { hasPermission } from '@/lib/admin-permissions'
 import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -55,6 +55,7 @@ import { ROLE } from '@/lib/roles'
  */
 export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
   const { t } = useTranslation()
+  const user = useAuthStore((state) => state.auth.user)
 
   return {
     navGroups: [
@@ -152,6 +153,9 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             url: '/users',
             icon: Users,
           },
+          ...(hasPermission(user, 'user_limit', 'read')
+            ? [{ title: t('Usage Limits'), url: '/usage-limits', icon: Gauge }]
+            : []),
           {
             title: t('Redemption Codes'),
             url: '/redemption-codes',
@@ -162,15 +166,15 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             url: '/subscriptions',
             icon: CreditCard,
           },
-          {
-            title: t('Model replacement detection'),
-            url: '/model-replacement',
-            icon: ScanSearch,
-            requiredPermission: {
-              resource: ADMIN_PERMISSION_RESOURCES.CHANNEL,
-              action: ADMIN_PERMISSION_ACTIONS.MODEL_REPLACEMENT,
-            },
-          },
+          ...(hasPermission(user, 'model_replacement', 'read')
+            ? [
+                {
+                  title: t('Model Replacement Detection'),
+                  url: '/model-replacement',
+                  icon: Fingerprint,
+                },
+              ]
+            : []),
           {
             title: t('System Info'),
             url: '/system-info',
@@ -178,9 +182,15 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             requiredRole: ROLE.SUPER_ADMIN,
           },
           {
-            title: t('Task Plugins'),
+            title: t('Plugins'),
             url: '/task-plugins',
             icon: PlugZap,
+            requiredRole: ROLE.SUPER_ADMIN,
+          },
+          {
+            title: t('Request processing'),
+            url: '/request-processing',
+            icon: Workflow,
             requiredRole: ROLE.SUPER_ADMIN,
           },
           {

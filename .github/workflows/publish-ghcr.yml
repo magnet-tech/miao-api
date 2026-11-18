@@ -1,5 +1,7 @@
-name: Build and publish my image
+name: Publish GHCR image (amd64)
 
+# Manual only: builds the checked-out branch for linux/amd64 and pushes it to
+# ghcr.io/<owner>/<repo>. The main branch also gets the latest tag.
 on:
   workflow_dispatch:
 
@@ -12,31 +14,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build and publish linux/amd64
+  publish:
+    name: Build & push linux/amd64
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
     steps:
-      - name: Check out source
+      - name: Check out
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Prepare image tags and version
+      - name: Resolve image name and version
         id: image
-        shell: bash
         run: |
           IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
-          VERSION="custom-${GITHUB_SHA:0:12}"
+          SHORT_SHA="${GITHUB_SHA::12}"
+          BRANCH="$(echo "$GITHUB_REF_NAME" | tr '/' '-')"
+          VERSION="$BRANCH-$SHORT_SHA"
           echo "$VERSION" > VERSION
-          echo "name=$IMAGE" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           {
-            echo 'tags<<IMAGE_TAGS'
-            echo "$IMAGE:sha-$GITHUB_SHA"
-            if [ "$GITHUB_REF" = 'refs/heads/main' ]; then
+            echo "name=$IMAGE"
+            echo "version=$VERSION"
+            echo "tags<<IMAGE_TAGS"
+            echo "$IMAGE:sha-$SHORT_SHA"
+            echo "$IMAGE:$BRANCH"
+            if [ "$GITHUB_REF_NAME" = "main" ]; then
               echo "$IMAGE:latest"
             fi
-            echo 'IMAGE_TAGS'
+            echo "IMAGE_TAGS"
           } >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
@@ -49,12 +53,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and publish image
+      - name: Build & push
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
-          file: ./Dockerfile
           platforms: linux/amd64
           push: true
           tags: ${{ steps.image.outputs.tags }}
@@ -64,17 +67,17 @@ jobs:
             org.opencontainers.image.version=${{ steps.image.outputs.version }}
           cache-from: type=gha,scope=ghcr-amd64
           cache-to: type=gha,scope=ghcr-amd64,mode=max
-          provenance: mode=min
 
-      - name: Write image summary
+      - name: Image summary
         env:
+          TAGS: ${{ steps.image.outputs.tags }}
           IMAGE: ${{ steps.image.outputs.name }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           {
-            echo '### Published image (linux/amd64)'
-            echo
-            echo "Pinned version: $IMAGE:sha-$GITHUB_SHA"
-            echo
-            echo "Digest: $IMAGE@$DIGEST"
+            echo "### Published linux/amd64 image"
+            echo '```'
+            echo "$TAGS"
+            echo "$IMAGE@$DIGEST"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

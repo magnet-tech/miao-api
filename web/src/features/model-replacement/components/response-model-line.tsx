@@ -20,14 +20,8 @@ import { useTranslation } from 'react-i18next'
 
 import { cn } from '@/lib/utils'
 
+import { RESPONSE_MODEL_NOTE_LABELS } from '../lib/constants'
 import type { ResponseModelNote } from '../types'
-
-const NOTE_KEYS: Record<ResponseModelNote, string> = {
-  not_checked: 'Not checked',
-  exact: 'Same as the test model',
-  loose_accepted: 'Accepted: differs only in case or date suffix',
-  mismatch: 'Different model',
-}
 
 export function ResponseModelLine(props: {
   model: string
@@ -59,7 +53,7 @@ export function ResponseModelLine(props: {
           props.note === 'mismatch' && 'text-destructive'
         )}
       >
-        ({t(NOTE_KEYS[props.note])})
+        ({t(RESPONSE_MODEL_NOTE_LABELS[props.note])})
       </span>
     </div>
   )

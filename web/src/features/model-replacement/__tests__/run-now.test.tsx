@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { toast } from 'sonner'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
@@ -71,6 +72,7 @@ function renderPage(user: AuthUser) {
 }
 
 it('runs detection by hand while automatic detection is off', async () => {
+  const success = vi.spyOn(toast, 'success')
   const post = vi.spyOn(api, 'post').mockResolvedValue({
     data: {
       success: true,
@@ -94,6 +96,9 @@ it('runs detection by hand while automatic detection is off', async () => {
   await waitFor(() =>
     expect(post).toHaveBeenCalledWith('/api/model_replacement/run')
   )
+  // The run response has no message; the toast must not fall back to the
+  // shared "Started" key, which other pages translate as a start time.
+  await waitFor(() => expect(success).toHaveBeenCalledWith('Detection started'))
 })
 
 it('offers no run without the permission to operate detection', async () => {

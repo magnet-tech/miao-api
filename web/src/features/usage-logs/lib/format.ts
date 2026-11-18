@@ -502,7 +502,8 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'user.delete': 'Deleted user {{username}} (ID: {{id}})',
   'user.account_delete': 'Account deletion',
   'user.manage': 'Performed {{action}} on user {{username}} (ID: {{id}})',
-  'user.email_send': 'Sent a {{kind}} email to user {{username}} (ID: {{id}})',
+  'user.email_send':
+    'Sent an email to user {{username}} (ID: {{id}}): {{kind}}',
   'user.limits_update': 'Updated usage limits of user {{target_username}}',
   'user.limits_reset': 'Reset usage limit windows of user {{target_username}}',
   'user.quota_add': 'Increased user quota by {{quota}}',
@@ -595,6 +596,30 @@ const AUDIT_TEMPLATES: Record<string, string> = {
 }
 
 /**
+ * Params some actions store as enum values, with the i18n key of each value,
+ * so the rendered content shows a label instead of the raw value.
+ */
+const AUDIT_PARAM_LABELS: Record<
+  string,
+  Record<string, Record<string, string>>
+> = {
+  'user.email_send': {
+    kind: {
+      custom: 'Custom email',
+      suspended: 'Account suspended notice',
+      restored: 'Account restored notice',
+    },
+  },
+  'model_replacement.run': {
+    trigger: {
+      schedule: 'Scheduled',
+      manual: 'Started manually',
+      retest: 'Single channel retest',
+    },
+  },
+}
+
+/**
  * Render a log's `other.content_parts`, which the backend stores as English
  * source keys plus params so the text follows the viewer's language. Returns
  * null for logs written before structured content, letting callers fall back
@@ -663,5 +688,10 @@ export function renderAuditContent(
     return `${quotaOperation.summary} · ${quotaOperation.description}`
   }
   const params = { ...op.params }
+  const paramLabels = AUDIT_PARAM_LABELS[op.action] ?? {}
+  for (const [name, labels] of Object.entries(paramLabels)) {
+    const label = labels[String(params[name])]
+    if (label) params[name] = t(label)
+  }
   return t(template, params)
 }

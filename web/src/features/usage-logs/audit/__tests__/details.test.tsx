@@ -138,6 +138,30 @@ it.each([
 })
 
 it.each([
+  [
+    'user.email_send',
+    { username: 'alice', id: 5, kind: 'suspended' },
+    '向用户 alice（ID：5）发送了邮件：账号暂停通知',
+  ],
+  [
+    'model_replacement.run',
+    { trigger: 'manual', channel_id: 0 },
+    '发起了一次模型替换检测（手动发起）',
+  ],
+])(
+  'shows the stored enum of %s as a translated label',
+  async (action, params, summary) => {
+    const i18n = createInstance()
+    await i18n.init({ lng: 'zh', resources: { zh } })
+    const detail = buildAuditDetails(
+      { ...entry, action, content: '', other: { op: { action, params } } },
+      i18n.t
+    )
+    expect(detail.summary).toBe(summary)
+  }
+)
+
+it.each([
   [[], 'No changes'],
   [
     ['remain_quota', 'auto_groups', 'cross_group_retry'],

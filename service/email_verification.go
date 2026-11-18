@@ -1,15 +1,15 @@
 package service
 
 import (
-	"errors"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 )
 
 // ErrEmailVerificationStepUpAvailable means the account can verify its
 // identity, so a first address must go through the regular email binding.
-var ErrEmailVerificationStepUpAvailable = errors.New("Verify your identity before binding an email address.")
+var ErrEmailVerificationStepUpAvailable error = common.NewMessage("Verify your identity before binding an email address.")
 
 type EmailVerificationData struct {
 	FlowToken string `json:"flow_token"`

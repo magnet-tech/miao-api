@@ -31,6 +31,11 @@ const (
 	// legacyResponseModelMismatch is how the first fork release recorded a
 	// declared model that differed from the monitored one.
 	legacyResponseModelMismatch = "The response model does not exactly match the test model."
+	// Attempt errors the gateway writes itself; they are keys of the console
+	// locale files, which translate them. The empty answer keeps the text of
+	// the first fork release, so its records translate too.
+	detectionEmptyAnswer = "upstream returned an empty answer"
+	detectionTimedOut    = "request timed out"
 )
 
 // detectionDisableReasons are stored as the channel status reason when an
@@ -319,7 +324,7 @@ func probeModel(ctx context.Context, channel *model.Channel, item operation_sett
 		if result.localErr != nil {
 			attempt.ErrorMessage = detectionText(result.localErr.Error())
 			if timedOut {
-				attempt.ErrorMessage = fmt.Sprintf("request timed out after %s", timeout)
+				attempt.ErrorMessage = detectionTimedOut
 			}
 			continue
 		}
@@ -393,7 +398,7 @@ func detectionAnswer(body []byte, isStream bool) (string, error) {
 	}
 	text := strings.TrimSpace(answer.String())
 	if text == "" {
-		return "", errors.New("upstream returned an empty answer")
+		return "", errors.New(detectionEmptyAnswer)
 	}
 	return text, nil
 }

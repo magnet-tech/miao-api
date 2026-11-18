@@ -33,7 +33,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { handleServerError } from '@/lib/handle-server-error'
-import { requireServerSuccess } from '@/lib/server-error-message'
+import {
+  requireServerSuccess,
+  translateServerText,
+} from '@/lib/server-error-message'
 
 import { trialRun } from '../api'
 import { CHANNEL_STATUS, VERDICT_STYLES } from '../lib/constants'
@@ -145,7 +148,9 @@ export function TrialRunPanel(props: TrialRunPanelProps) {
             </span>
           </div>
           {result.error ? (
-            <p className='text-destructive text-xs'>{result.error}</p>
+            <p className='text-destructive text-xs'>
+              {translateServerText(t, result.error)}
+            </p>
           ) : (
             <div className='space-y-1 text-xs'>
               <div>

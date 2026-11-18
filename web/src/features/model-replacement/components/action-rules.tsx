@@ -32,7 +32,12 @@ import {
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
-import { ACTION_CATEGORIES, ACTION_DEFS, ACTION_LISTS } from '../lib/constants'
+import {
+  ACTION_CATEGORIES,
+  ACTION_DEFS,
+  ACTION_LISTS,
+  ACTION_VALUE_PLACEHOLDERS,
+} from '../lib/constants'
 import { useStableKeys } from '../lib/stable-keys'
 import type {
   ActionListKey,
@@ -48,15 +53,6 @@ const DEFAULT_VALUES: Partial<Record<ActionType, string>> = {
   increase_weight: '10',
   decrease_weight: '10',
   set_weight: '0',
-}
-
-const VALUE_PLACEHOLDERS: Record<string, string> = {
-  group: 'Group name',
-  tag: 'Tag',
-  optional_tag: 'Leave empty to remove any tag',
-  amount: 'Amount',
-  integer: 'Priority',
-  non_negative: 'Weight',
 }
 
 function ActionRow(props: {
@@ -79,8 +75,8 @@ function ActionRow(props: {
       <span className='font-medium'>{t(def.labelKey)}</span>
       {def.valueKind !== 'none' ? (
         <Input
-          aria-label={t(VALUE_PLACEHOLDERS[def.valueKind])}
-          placeholder={t(VALUE_PLACEHOLDERS[def.valueKind])}
+          aria-label={t(ACTION_VALUE_PLACEHOLDERS[def.valueKind])}
+          placeholder={t(ACTION_VALUE_PLACEHOLDERS[def.valueKind])}
           value={props.action.value}
           inputMode={numeric ? 'numeric' : undefined}
           disabled={props.readOnly}

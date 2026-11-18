@@ -2,7 +2,6 @@ package service
 
 import (
 	"encoding/base64"
-	"errors"
 	"html"
 	"net/http"
 	"net/mail"
@@ -32,16 +31,17 @@ const (
 	AccountNoticeTemplatesOption = "AccountNoticeEmailTemplates"
 )
 
+// These reach the web console as message keys, so it translates them.
 var (
-	ErrUserEmailSubject       = errors.New("Subject must be 1 to 200 characters.")
-	ErrUserEmailBodyEmpty     = errors.New("The email body is empty.")
-	ErrUserEmailBodyTooLong   = errors.New("The email body is too long.")
-	ErrUserEmailImageCount    = errors.New("An email can contain at most 5 images.")
-	ErrUserEmailImageSize     = errors.New("Images can be at most 5 MB in total.")
-	ErrUserEmailImageInvalid  = errors.New("Only PNG, JPEG, GIF and WebP images can be inserted.")
-	ErrUserEmailRecipient     = errors.New("This user has no valid email address.")
-	ErrUserEmailNoticeKind    = errors.New("Unknown notice type.")
-	ErrUserEmailTemplateEmpty = errors.New("Each notice template needs a subject and a body.")
+	ErrUserEmailSubject       error = common.NewMessage("Subject must be 1 to 200 characters.")
+	ErrUserEmailBodyEmpty     error = common.NewMessage("The email body is empty.")
+	ErrUserEmailBodyTooLong   error = common.NewMessage("The email body is too long.")
+	ErrUserEmailImageCount    error = common.NewMessage("An email can contain at most 5 images.")
+	ErrUserEmailImageSize     error = common.NewMessage("Images can be at most 5 MB in total.")
+	ErrUserEmailImageInvalid  error = common.NewMessage("Only PNG, JPEG, GIF and WebP images can be inserted.")
+	ErrUserEmailRecipient     error = common.NewMessage("This user has no valid email address.")
+	ErrUserEmailNoticeKind    error = common.NewMessage("Unknown notice type.")
+	ErrUserEmailTemplateEmpty error = common.NewMessage("Each notice template needs a subject and a body.")
 
 	emailImageCID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 	templateVar   = regexp.MustCompile(`\{\{\s*([a-z_]+)\s*\}\}`)

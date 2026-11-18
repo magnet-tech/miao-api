@@ -26,7 +26,10 @@ import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import dayjs from '@/lib/dayjs'
-import { requireServerSuccess } from '@/lib/server-error-message'
+import {
+  requireServerSuccess,
+  translateServerText,
+} from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 import { getCandidates, getCellDetail, modelReplacementKeys } from '../api'
@@ -205,7 +208,9 @@ export function CellDetailPanel(props: {
                 </span>
               </div>
               {attempt.error ? (
-                <p className='text-destructive mt-1 text-xs'>{attempt.error}</p>
+                <p className='text-destructive mt-1 text-xs'>
+                  {translateServerText(t, attempt.error)}
+                </p>
               ) : (
                 <div className='mt-1 space-y-0.5 text-xs'>
                   <div>

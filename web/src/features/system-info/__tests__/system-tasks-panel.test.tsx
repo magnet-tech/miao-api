@@ -120,6 +120,32 @@ it('filters history on the server and resets pagination without hiding active ta
   client.clear()
 })
 
+it('names model replacement detection tasks and offers them as a type filter', async () => {
+  vi.spyOn(api, 'get').mockImplementation(
+    async (_url, config?: ApiRequestConfig) => {
+      const active = config?.params?.scope === 'active'
+      return {
+        data: {
+          success: true,
+          data: active
+            ? []
+            : [{ ...task, type: 'model_replacement_detection' }],
+          total: active ? 0 : 1,
+        },
+      }
+    }
+  )
+  const client = renderPanel()
+  const filter = await screen.findByRole('combobox', { name: 'Type' })
+  expect(
+    within(filter).getByRole('option', { name: 'Model Replacement Detection' })
+  ).toBeInTheDocument()
+  expect(
+    await screen.findByRole('cell', { name: /^Model Replacement Detection/ })
+  ).toBeVisible()
+  client.clear()
+})
+
 it('keeps filters available and disables cleanup when history is empty', async () => {
   vi.spyOn(api, 'get').mockResolvedValue({
     data: { success: true, data: [], total: 0 },

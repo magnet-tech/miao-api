@@ -1,7 +1,6 @@
 package model
 
 import (
-	"errors"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -22,7 +21,8 @@ const (
 	userEmailHistoryLimit = 50
 )
 
-var ErrAccountNoticeUnavailable = errors.New("This notice can no longer be sent. Send it from the email drawer instead.")
+// ErrAccountNoticeUnavailable reaches the web console as a message key.
+var ErrAccountNoticeUnavailable error = common.NewMessage("This notice can no longer be sent. Send it from the email drawer instead.")
 
 type UserEmailLog struct {
 	Id               int    `json:"id"`

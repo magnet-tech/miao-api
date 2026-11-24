@@ -215,6 +215,7 @@ func TestEmailVerificationRequiredBindingWithoutStepUp(t *testing.T) {
 	withPassword, _ := emailVerificationCall(t, identity, "/api/user/self/email/verify/start", `{"email":"first@example.com"}`, EmailVerificationStart)
 	assert.False(t, withPassword.Success)
 	assert.Equal(t, "EMAIL_VERIFICATION_STEP_UP_REQUIRED", withPassword.Code)
+	assert.Equal(t, "Verify your identity before binding an email address.", withPassword.MessageKey, "the console translates the reason")
 
 	// Without any step-up method the first address can be bound directly.
 	require.NoError(t, model.DB.Model(user).Update("password", "").Error)

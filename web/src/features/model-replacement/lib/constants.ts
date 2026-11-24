@@ -20,10 +20,15 @@ import type {
   ActionListKey,
   ActionType,
   ChannelStatus,
+  DetectionRun,
   MatchMode,
   ResponseModelCheck,
+  ResponseModelNote,
   Verdict,
 } from '../types'
+
+// Every string value in this file is an i18n key that components render
+// with t().
 
 export const VERDICT_STYLES: Record<
   Verdict,
@@ -37,7 +42,8 @@ export const VERDICT_STYLES: Record<
   passed: {
     cell: 'bg-success/85 text-white hover:bg-success',
     dot: 'bg-success',
-    labelKey: 'Passed',
+    // Not the shared "Passed" key, which other pages translate as "let through".
+    labelKey: 'Detection passed',
     badge: 'success',
   },
   replaced: {
@@ -86,6 +92,34 @@ export const RESPONSE_CHECK_LABELS: Record<ResponseModelCheck, string> = {
   off: 'Off',
   exact: 'Exact',
   loose: 'Ignore case and date suffix',
+}
+
+export const RESPONSE_CHECK_HINTS: Record<ResponseModelCheck, string> = {
+  off: 'Only the answer is checked.',
+  exact: 'The model name returned by the channel must equal the test model.',
+  loose: 'Case differences and date suffixes such as -2026-11-01 are accepted.',
+}
+
+export const RESPONSE_MODEL_NOTE_LABELS: Record<ResponseModelNote, string> = {
+  not_checked: 'Not checked',
+  exact: 'Same as the test model',
+  loose_accepted: 'Accepted: differs only in case or date suffix',
+  mismatch: 'Different model',
+}
+
+export const TRIGGER_LABELS: Record<DetectionRun['trigger'], string> = {
+  schedule: 'Scheduled',
+  manual: 'Started manually',
+  retest: 'Single channel retest',
+}
+
+export const MODEL_EDITOR_ERRORS = {
+  modelRequired: 'Select a model.',
+  modelTaken: 'Each model can be monitored only once.',
+  questionRequired: 'Question is required.',
+  answerRequired: 'Expected answer is required.',
+  answerInvalidRegex: 'The expected answer is not a valid regular expression.',
+  retryTimesRange: 'Retry times must be between 0 and 10.',
 }
 
 export type ActionValueKind =
@@ -157,6 +191,19 @@ export const ACTION_DEFS: Record<
     category: 'Status',
     valueKind: 'none',
   },
+}
+
+export const ACTION_VALUE_PLACEHOLDERS: Record<
+  Exclude<ActionValueKind, 'none'>,
+  string
+> = {
+  group: 'Group name',
+  tag: 'Tag',
+  optional_tag: 'Leave empty to remove any tag',
+  // Not the shared "Amount" key, which other pages translate as money.
+  amount: 'Change by',
+  integer: 'Priority',
+  non_negative: 'Weight',
 }
 
 export const ACTION_CATEGORIES = [

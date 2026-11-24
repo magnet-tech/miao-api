@@ -52,32 +52,32 @@ export function useDetectionOverview() {
 
 function useStartMutation<TArgs>(
   run: (args: TArgs) => ReturnType<typeof runDetection>,
-  fallbackKey: string
+  messages: { success: string; failure: string }
 ) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (args: TArgs) => requireServerSuccess(await run(args)),
-    onSuccess: (response) => {
-      toast.success(t(response.message || 'Started'))
+    onSuccess: () => {
+      toast.success(t(messages.success))
       void queryClient.invalidateQueries({
         queryKey: modelReplacementKeys.overview(),
       })
     },
-    onError: (error) => handleServerError(error, t(fallbackKey)),
+    onError: (error) => handleServerError(error, t(messages.failure)),
   })
 }
 
 export function useRunDetection() {
-  return useStartMutation<void>(
-    () => runDetection(),
-    'Failed to start detection'
-  )
+  return useStartMutation<void>(() => runDetection(), {
+    success: 'Detection started',
+    failure: 'Failed to start detection',
+  })
 }
 
 export function useRetestChannel() {
-  return useStartMutation<number>(
-    (channelId) => retestChannel(channelId),
-    'Failed to start the retest'
-  )
+  return useStartMutation<number>((channelId) => retestChannel(channelId), {
+    success: 'Retest started',
+    failure: 'Failed to start the retest',
+  })
 }

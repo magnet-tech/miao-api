@@ -216,7 +216,9 @@ func TestAccountNoticeUsesTheVerifiedManageGrantOnce(t *testing.T) {
 	received := lastMail(t, mailbox, target.Email)
 	assert.Equal(t, common.SystemName+": account managed-user suspended", received.Subject)
 	assert.Equal(t, "<p>Hi &lt;b&gt;Managed&lt;/b&gt;</p>", received.HTML, "values are escaped and the template is sanitized")
-	assert.Contains(t, notice(model.UserEmailKindSuspended, token), `"success":false`, "a grant works once")
+	spent := notice(model.UserEmailKindSuspended, token)
+	assert.Contains(t, spent, `"success":false`, "a grant works once")
+	assert.Contains(t, spent, `"message_key":"This notice can no longer be sent. Send it from the email drawer instead."`, "the console translates the reason")
 
 	otherSession, _, err := model.CreateAccountNoticeGrant(identity.UserID, "another-session", target.Id, model.UserEmailKindSuspended)
 	require.NoError(t, err)

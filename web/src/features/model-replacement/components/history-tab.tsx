@@ -36,15 +36,9 @@ import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 import { getChannels, getRuns, modelReplacementKeys } from '../api'
-import { VERDICT_STYLES } from '../lib/constants'
+import { TRIGGER_LABELS, VERDICT_STYLES } from '../lib/constants'
 import { describeAction } from '../lib/utils'
 import type { DetectionRun } from '../types'
-
-const TRIGGER_KEYS: Record<DetectionRun['trigger'], string> = {
-  schedule: 'Scheduled',
-  manual: 'Started manually',
-  retest: 'Single channel retest',
-}
 
 function formatDuration(
   ms: number,
@@ -79,7 +73,7 @@ function RunDialog(props: { run: DetectionRun | null; onClose: () => void }) {
       }
       description={
         run
-          ? `${t(TRIGGER_KEYS[run.trigger])} · ${formatDuration(run.duration_ms, t)}`
+          ? `${t(TRIGGER_LABELS[run.trigger])} · ${formatDuration(run.duration_ms, t)}`
           : ''
       }
       contentClassName='sm:max-w-4xl'
@@ -213,7 +207,7 @@ export function HistoryTab() {
                   </TableCell>
                   <TableCell>
                     <StatusBadge
-                      label={t(TRIGGER_KEYS[run.trigger])}
+                      label={t(TRIGGER_LABELS[run.trigger])}
                       variant={run.trigger === 'schedule' ? 'neutral' : 'info'}
                       size='sm'
                     />

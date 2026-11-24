@@ -54,6 +54,8 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   CHANNEL_STATUS,
   MATCH_MODE_LABELS,
+  MODEL_EDITOR_ERRORS,
+  RESPONSE_CHECK_HINTS,
   RESPONSE_CHECK_LABELS,
 } from '../lib/constants'
 import type {
@@ -74,31 +76,26 @@ const EMPTY_MODEL: MonitoredModel = {
   excluded_channel_ids: [],
 }
 
-const RESPONSE_CHECK_HINTS: Record<ResponseModelCheck, string> = {
-  off: 'Only the answer is checked.',
-  exact: 'The model name returned by the channel must equal the test model.',
-  loose: 'Case differences and date suffixes such as -2026-11-01 are accepted.',
-}
-
 type Errors = Partial<
   Record<'model' | 'question' | 'expected_answer' | 'retry_times', string>
 >
 
 function validate(draft: MonitoredModel, taken: string[]): Errors {
   const errors: Errors = {}
-  if (!draft.model) errors.model = 'Select a model.'
+  if (!draft.model) errors.model = MODEL_EDITOR_ERRORS.modelRequired
   else if (taken.includes(draft.model)) {
-    errors.model = 'Each model can be monitored only once.'
+    errors.model = MODEL_EDITOR_ERRORS.modelTaken
   }
-  if (!draft.question.trim()) errors.question = 'Question is required.'
+  if (!draft.question.trim()) {
+    errors.question = MODEL_EDITOR_ERRORS.questionRequired
+  }
   if (!draft.expected_answer.trim()) {
-    errors.expected_answer = 'Expected answer is required.'
+    errors.expected_answer = MODEL_EDITOR_ERRORS.answerRequired
   } else if (draft.match_mode === 'regex') {
     try {
       new RegExp(draft.expected_answer)
     } catch {
-      errors.expected_answer =
-        'The expected answer is not a valid regular expression.'
+      errors.expected_answer = MODEL_EDITOR_ERRORS.answerInvalidRegex
     }
   }
   if (
@@ -106,7 +103,7 @@ function validate(draft: MonitoredModel, taken: string[]): Errors {
     draft.retry_times < 0 ||
     draft.retry_times > 10
   ) {
-    errors.retry_times = 'Retry times must be between 0 and 10.'
+    errors.retry_times = MODEL_EDITOR_ERRORS.retryTimesRange
   }
   return errors
 }

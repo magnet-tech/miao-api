@@ -23,10 +23,11 @@ const (
 	emailGateTTL = 60 * time.Second
 )
 
+// These reach the web console as message keys, so it translates them.
 var (
-	ErrEmailVerificationNotRequired = errors.New("This account does not need email verification.")
-	ErrEmailVerificationNoEmail     = errors.New("This account has no email address to verify.")
-	ErrEmailVerificationChanged     = errors.New("The account email changed. Start email verification again.")
+	ErrEmailVerificationNotRequired error = common.NewMessage("This account does not need email verification.")
+	ErrEmailVerificationNoEmail     error = common.NewMessage("This account has no email address to verify.")
+	ErrEmailVerificationChanged     error = common.NewMessage("The account email changed. Start email verification again.")
 )
 
 // EmailVerificationState is the server-owned payload of an email verification

@@ -34,7 +34,7 @@ func writeEmailVerificationError(c *gin.Context, err error) {
 		writeSecurityOperationError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": false, "code": code, "message": err.Error()})
+	common.ApiErrorStatus(c, http.StatusOK, err, gin.H{"code": code})
 }
 
 // EmailVerificationStart sends a code to the current address, or to a first
